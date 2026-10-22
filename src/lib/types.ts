@@ -20,6 +20,46 @@ import {
 } from "@/lib/sessions.mjs";
 import { createRouteHandler as createRouteHandlerJs } from "@/lib/guard.mjs";
 import { listAudit as listAuditJs } from "@/lib/audit.mjs";
+import { withinLimit as withinLimitJs, applyEvent as applyEventJs } from "@/lib/billing.mjs";
+
+export type BillingEventInput = {
+  provider: string;
+  eventId: string;
+  type: string;
+  data?: Record<string, any>;
+  raw?: string | null;
+  now?: number;
+};
+
+export type BillingEventResult = {
+  applied: boolean;
+  reason?: string;
+  orgId?: string;
+  status?: string;
+  entitlements?: unknown;
+};
+
+// Same reason as everything else here: a JavaScript default of null makes the parameter infer as
+// `null | undefined` and reject the string a caller passes.
+export function applyEvent(db: unknown, input: BillingEventInput): BillingEventResult {
+  return applyEventJs(db as never, input as never) as BillingEventResult;
+}
+
+export type LimitCheck = {
+  allowed: boolean;
+  limit: number | null;
+  current: number | null;
+  reason: string;
+};
+
+export function withinLimit(
+  db: unknown,
+  orgId: string,
+  feature: string,
+  options?: { current?: number | null },
+): LimitCheck {
+  return withinLimitJs(db as never, orgId, feature, options as never) as never;
+}
 
 export type AuditRow = {
   id: string;

@@ -39,6 +39,10 @@ function check(label, condition, detail = "") {
   }
 }
 
+function noteWebhookSkip() {
+  console.log("  skip  billing webhook checks: set BILLING_WEBHOOK_SECRET on the server and here");
+}
+
 async function post(payload, contentType = "application/json") {
   const response = await fetch(`${BASE}/api/enquiries`, {
     method: "POST",
@@ -162,6 +166,112 @@ check("and it redirects to the sign in page", String(appPage.headers.get("locati
 
 const adminPage = await fetch(`${BASE}/admin`, { redirect: "manual" });
 check("platform administration is not reachable without a session", adminPage.status >= 300 && adminPage.status < 400, `status ${adminPage.status}`);
+
+/* billing webhooks --------------------------------------------------------- */
+
+// This is the path that decides whether somebody is paying, so it is exercised over HTTP rather
+// than only in unit tests. The server must be started with BILLING_WEBHOOK_SECRET set.
+const WEBHOOK_SECRET = process.env.BILLING_WEBHOOK_SECRET ?? "";
+
+if (!WEBHOOK_SECRET) {
+  noteWebhookSkip();
+} else {
+  const { createHmac } = await import("node:crypto");
+
+  const signed = (payload) => {
+    const body = JSON.stringify(payload);
+    return {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-billing-signature": `sha256=${createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex")}`,
+      },
+    };
+  };
+
+  const hook = async (payload, { goodSignature = true } = {}) => {
+    const prepared = signed(payload);
+    const response = await fetch(`${BASE}/api/webhooks/billing`, {
+      method: "POST",
+      headers: goodSignature
+        ? prepared.headers
+        : { "content-type": "application/json", "x-billing-signature": "sha256=deadbeef" },
+      body: prepared.body,
+    });
+    let parsed = null;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+    return { status: response.status, body: parsed };
+  };
+
+  const unsigned = await fetch(`${BASE}/api/webhooks/billing`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "subscription.updated", eventId: "evt_unsigned" }),
+  });
+  check("an unsigned webhook is refused", unsigned.status === 401, `status ${unsigned.status}`);
+
+  const tampered = await hook({ type: "subscription.updated", eventId: "evt_tampered" }, { goodSignature: false });
+  check("a webhook with a wrong signature is refused", tampered.status === 401, `status ${tampered.status}`);
+
+  // A pending subscription, exactly as a checkout leaves behind, so the webhook has something real
+  // to attach to.
+  const writeable = new Database(dbFile);
+  const reference = `verify_${Date.now().toString(36)}`;
+  writeable
+    .prepare(
+      `insert into subscriptions (id, organization_id, provider, provider_id, status, plan_id, trial_end, period_end, created_at)
+       values (?, ?, null, ?, 'incomplete', 'starter', null, null, ?)`,
+    )
+    .run(`sub_verify_${Date.now().toString(36)}`, org.id, reference, new Date().toISOString());
+
+  const eventId = `evt_verify_${Date.now().toString(36)}`;
+  const activation = {
+    eventId,
+    type: "subscription.updated",
+    data: {
+      providerSubscriptionId: reference,
+      status: "active",
+      planId: "starter",
+      periodEnd: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    },
+  };
+
+  const applied = await hook(activation);
+  check("a correctly signed webhook is accepted", applied.status === 200, `status ${applied.status}`);
+  check("and the subscription is activated", applied.body?.applied === true, JSON.stringify(applied.body));
+
+  const status = writeable
+    .prepare("select status, plan_id from subscriptions where provider_id = ?")
+    .get(reference);
+  const entitlements = writeable
+    .prepare("select count(*) as n from entitlements where organization_id = ?")
+    .get(org.id).n;
+  check("the subscription is now active on the plan that was bought", status?.status === "active" && status?.plan_id === "starter", JSON.stringify(status));
+  check("and the plan's entitlements were granted", entitlements > 0, `${entitlements} entitlement row(s)`);
+
+  const replayed = await hook(activation);
+  check("the same event delivered twice applies once", replayed.body?.applied === false && replayed.body?.reason === "duplicate", JSON.stringify(replayed.body));
+
+  const unknown = await hook({
+    eventId: `evt_ghost_${Date.now().toString(36)}`,
+    type: "subscription.updated",
+    data: { providerSubscriptionId: "sub_that_does_not_exist", status: "active", planId: "professional" },
+  });
+  check("an event about an unknown subscription changes nothing", unknown.body?.applied === false && unknown.body?.reason === "unknown_subscription", JSON.stringify(unknown.body));
+
+  const checkout = await fetch(`${BASE}/api/billing/checkout`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ planId: "starter" }),
+  });
+  check("checkout refuses an anonymous caller", checkout.status === 401, `status ${checkout.status}`);
+
+  writeable.close();
+}
 
 /* rate limiting, run last because it deliberately exhausts the allowance ----- */
 

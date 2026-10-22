@@ -18,6 +18,7 @@ import {
   createSession,
   revokeSession,
   switchOrg,
+  withinLimit,
 } from "@/lib/types";
 
 // A "use server" module may export async functions and nothing else, so constants and helpers
@@ -119,6 +120,17 @@ export async function createContactAction(form: FormData) {
     assertCan(session.role, "contact:write");
   } catch {
     redirect(`/app/contacts?error=${message("Your role cannot add contacts.")}`);
+  }
+
+  // The plan limit is checked here, on the server, because hiding the form is not enforcement:
+  // anybody with a session can post to this action directly.
+  const limit = withinLimit(db(), session.orgId, "contacts");
+  if (!limit.allowed) {
+    const explain =
+      limit.reason === "not_entitled"
+        ? "This workspace has no plan that includes contacts."
+        : `This plan allows ${limit.limit} contacts and the workspace has ${limit.current}.`;
+    redirect(`/app/contacts?error=${message(`${explain} Choose a plan to add more.`)}`);
   }
 
   const name = field(form, "name");

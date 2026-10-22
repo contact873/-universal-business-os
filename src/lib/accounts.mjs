@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { hashPassword, verifyPassword, needsRehash, MIN_PASSWORD_LENGTH } from "./passwords.mjs";
 import { writeAudit } from "./audit.mjs";
 import { isRole } from "./roles.mjs";
+import { isPaying } from "./subscription-state.mjs";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -192,11 +193,12 @@ export function startTrial(db, orgId, planId, { days = 14, now = Date.now() } = 
   }
 
   db.prepare(
-    `insert into subscriptions (id, organization_id, provider, provider_id, status, trial_end, period_end, created_at)
-     values (?, ?, null, null, 'trialing', ?, null, ?)`,
+    `insert into subscriptions (id, organization_id, provider, provider_id, status, plan_id, trial_end, period_end, created_at)
+     values (?, ?, null, null, 'trialing', ?, ?, null, ?)`,
   ).run(
     id("sub"),
     orgId,
+    planId,
     new Date(now + days * 86_400_000).toISOString(),
     new Date(now).toISOString(),
   );
@@ -224,15 +226,13 @@ export function entitlementFor(db, orgId, feature) {
     .get(orgId, feature);
   if (!row) return { granted: false, limit: null };
 
+  // Whether the subscription is currently worth honouring is decided in one place, so a paid plan
+  // and a trial cannot drift apart on the same rules.
   const subscription = db
-    .prepare("select status, trial_end from subscriptions where organization_id = ? order by created_at desc limit 1")
+    .prepare("select * from subscriptions where organization_id = ? order by created_at desc limit 1")
     .get(orgId);
 
-  const paid =
-    subscription?.status === "active" ||
-    (subscription?.status === "trialing" && Date.parse(subscription.trial_end ?? 0) > Date.now());
-
-  return { granted: paid, limit: row.limit_value };
+  return { granted: isPaying(subscription), limit: row.limit_value };
 }
 
 export function hasFeature(db, orgId, feature) {
