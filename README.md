@@ -218,22 +218,24 @@ reason it was not sent, so "invited" and "emailed" are two different facts.
 
 ## Deploying
 
-The app **refuses to start on a serverless host without `DATABASE_URL`**. That is intentional: on
-Vercel the filesystem is read-only and `/tmp` is per-instance, so storing customer records there
-loses them silently. It fails loudly instead.
+**This build needs a disk.** It stores through `better-sqlite3`, which is synchronous and writes a
+file. That rules out any platform without a persistent volume, including Vercel: on a serverless
+host the filesystem is read-only and `/tmp` is per-instance, so customer records would vanish. The
+app refuses to start there without a database URL, and it has no synchronous way to use one.
 
-**Recommended: Vercel plus Turso.** Turso is libSQL, so the SQL we already have stays the same,
-and it is one environment variable.
+**Prepared for Fly.io**, one machine and one volume. See `DEPLOY-FLY.md` for the exact commands:
+`Dockerfile`, `.dockerignore` and `fly.toml` are in the repository, with migrations running as the
+release command and a health check on `/api/health`.
 
-1. Create a Turso database and copy its URL and token.
-2. In Vercel, set `SESSION_SECRET`, `DATABASE_URL`, `PLATFORM_ADMIN_EMAILS` and `APP_URL`.
-3. Deploy, then point `app.connect.raschident.com` at the Vercel project with a CNAME.
-4. Apply migrations against the hosted database before the first request.
+**The honest limitation:** a Fly volume attaches to one machine, so this runs as a single instance.
+That is fine at this stage and it is not fine at scale. The path to multiple instances is the
+asynchronous database migration below, not a second machine.
 
-**Or: Supabase.** Apply `supabase/migrations/postgres` with the Supabase CLI, then apply
-`supabase/policies/rls.sql`. Read the note in that file about swapping `app_current_user()` for
-`auth.uid()`. Until the RLS policies are applied, a table without a policy is open to any holder
-of the anon key.
+**When you want serverless**, the sequence is: convert the data layer to an asynchronous hosted
+client (Turso for libSQL, Supabase for Postgres), update the test suites and the verification
+scripts to await it, then `DATABASE_URL` becomes the only deployment change. The Postgres schema and
+the row level security policies in `supabase/` are already written for that day. Until the RLS
+policies are applied, a table without a policy is open to any holder of the anon key.
 
 ---
 

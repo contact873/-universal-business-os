@@ -1,0 +1,54 @@
+# Fly.io configuration for Universal Business OS.
+#
+# One machine, one volume, one SQLite file. That is a deliberate choice and it has a real
+# consequence: a Fly volume is attached to a single machine, so this app does not scale
+# horizontally. For the number of businesses this platform will serve before billing even exists,
+# that is the correct trade, and hiding it would be worse than stating it. When it stops being
+# true, the answer is the asynchronous database migration, not another machine.
+
+app = "relco-business-os"
+primary_region = "dxb"
+kill_signal = "SIGINT"
+kill_timeout = "5s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  # The mounted volume. Without this the app would write to the container filesystem, which is
+  # replaced on every deploy, and lose every customer record with it.
+  DATA_DIR = "/data"
+  APP_URL = "https://app.connect.raschident.com"
+
+# The database lives here. Create it once with:
+#   fly volumes create ubos_data --region dxb --size 1
+[mounts]
+  source = "ubos_data"
+  destination = "/data"
+
+# Runs before the new release takes traffic, with the volume mounted. A failed migration stops the
+# deploy rather than leaving a new image talking to an old schema.
+[deploy]
+  release_command = "node scripts/migrate.mjs"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # One always on, so the first visitor of the day does not wait for a cold start.
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1

@@ -13,6 +13,7 @@ import { DATA_DIR, DATABASE_URL, IS_PRODUCTION, PLATFORM_ADMIN_EMAILS } from "..
 import { createUser, createOrganization, addMember } from "../src/lib/accounts.mjs";
 import { createTenantStore } from "../src/lib/tenant.mjs";
 import { createService, createStaff, book, zonedToUtc, listServices } from "../src/lib/bookings.mjs";
+import { ensurePlans } from "../src/lib/plans.mjs";
 
 const flag = (name) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -38,20 +39,8 @@ apply(db, "sqlite", { log: (line) => console.log(line) });
 
 /* plans -------------------------------------------------------------------- */
 
-const PLANS = [
-  { id: "starter", name: "Starter", price: 1900, limits: { contacts: 250, seats: 2 } },
-  { id: "professional", name: "Professional", price: 4900, limits: { contacts: 2500, seats: 10 } },
-  { id: "business", name: "Business AI", price: 9900, limits: { contacts: 25000, seats: 50 } },
-];
-
-for (const plan of PLANS) {
-  db.prepare(
-    `insert into plans (id, name, price_minor, currency, exponent, interval, limits_json)
-     values (?, ?, ?, 'USD', 2, 'month', ?)
-     on conflict (id) do update set name = excluded.name, price_minor = excluded.price_minor`,
-  ).run(plan.id, plan.name, plan.price, JSON.stringify(plan.limits));
-}
-console.log(`  ${PLANS.length} plans`);
+// Shared with the production admin script: a plan catalogue is configuration, not demo data.
+console.log(`  ${ensurePlans(db).plans} plans`);
 
 /* users -------------------------------------------------------------------- */
 
