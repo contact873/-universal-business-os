@@ -5,7 +5,7 @@
 // mixing them would have meant weakening that guarantee.
 
 import { id, nowIso, normalizeEmail } from "./identities.mjs";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { hashPassword, verifyPassword, needsRehash, MIN_PASSWORD_LENGTH } from "./passwords.mjs";
 import { writeAudit } from "./audit.mjs";
 import { isRole } from "./roles.mjs";
@@ -237,4 +237,93 @@ export function entitlementFor(db, orgId, feature) {
 
 export function hasFeature(db, orgId, feature) {
   return entitlementFor(db, orgId, feature).granted;
+}
+
+/* invitations --------------------------------------------------------------- */
+
+/**
+ * Records an invitation and returns the row. Whether it was delivered is recorded separately by
+ * recordInvitationDelivery, so a provider failure never loses the invitation itself. The token is
+ * returned once and only its hash is stored, so a database leak does not hand somebody an
+ * invitation they can accept.
+ */
+export function createInvitation(db, orgId, { email, role, actorUserId = null, days = 7 }) {
+  const clean = normalizeEmail(email);
+  if (!EMAIL_RE.test(clean)) {
+    const error = new Error("That email address does not look right.");
+    error.status = 400;
+    throw error;
+  }
+  if (!isRole(role)) {
+    const error = new Error(`Unknown role "${role}".`);
+    error.status = 400;
+    throw error;
+  }
+
+  const invitationId = id("inv");
+  const token = randomBytes(24).toString("base64url");
+
+  db.prepare(
+    `insert into invitations (id, organization_id, email, role, token_hash, expires_at, accepted_at, sent_at, send_error, created_at)
+     values (?, ?, ?, ?, ?, ?, null, null, null, ?)`,
+  ).run(
+    invitationId,
+    orgId,
+    clean,
+    role,
+    createHash("sha256").update(token).digest("hex"),
+    new Date(Date.now() + days * 86_400_000).toISOString(),
+    nowIso(),
+  );
+
+  writeAudit(db, {
+    orgId,
+    actorUserId,
+    action: "member.invite",
+    entity: "invitation",
+    entityId: invitationId,
+    meta: { email: clean, role },
+  });
+
+  return { invitationId, token, email: clean, role };
+}
+
+export function recordInvitationDelivery(db, invitationId, result) {
+  db.prepare("update invitations set sent_at = ?, send_error = ? where id = ?").run(
+    result.ok ? nowIso() : null,
+    result.ok ? null : `${result.reason}${result.status ? ` (${result.status})` : ""}`,
+    invitationId,
+  );
+  return { ok: result.ok };
+}
+
+export function listInvitations(db, orgId) {
+  return db
+    .prepare(
+      "select id, email, role, expires_at, accepted_at, sent_at, send_error from invitations where organization_id = ? order by created_at desc",
+    )
+    .all(orgId);
+}
+
+export function acceptInvitation(db, token, userId, { now = Date.now() } = {}) {
+  const hash = createHash("sha256").update(String(token)).digest("hex");
+  const invitation = db.prepare("select * from invitations where token_hash = ?").get(hash);
+
+  if (!invitation) return { ok: false, reason: "unknown" };
+  if (invitation.accepted_at) return { ok: false, reason: "already_accepted" };
+  if (Date.parse(invitation.expires_at) <= now) return { ok: false, reason: "expired" };
+
+  addMember(db, invitation.organization_id, userId, invitation.role);
+  db.prepare("update invitations set accepted_at = ? where id = ?").run(nowIso(), invitation.id);
+
+  writeAudit(db, {
+    orgId: invitation.organization_id,
+    actorUserId: userId,
+    action: "member.accepted",
+    entity: "invitation",
+    entityId: invitation.id,
+    meta: { role: invitation.role },
+  });
+
+  return { ok: true, orgId: invitation.organization_id, role: invitation.role };
 }

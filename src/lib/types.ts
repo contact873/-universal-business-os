@@ -21,6 +21,139 @@ import {
 import { createRouteHandler as createRouteHandlerJs } from "@/lib/guard.mjs";
 import { listAudit as listAuditJs } from "@/lib/audit.mjs";
 import { withinLimit as withinLimitJs, applyEvent as applyEventJs } from "@/lib/billing.mjs";
+import {
+  zonedToUtc as zonedToUtcJs,
+  createService as createServiceJs,
+  createStaff as createStaffJs,
+  book as bookJs,
+  setAppointmentStatus as setStatusJs,
+  listAppointments as listAppointmentsJs,
+  listServices as listServicesJs,
+  listStaff as listStaffJs,
+  freeSlots as freeSlotsJs,
+} from "@/lib/bookings.mjs";
+import {
+  sendEmail as sendEmailJs,
+  invitationEmail as invitationEmailJs,
+} from "@/lib/email.mjs";
+import {
+  createInvitation as createInvitationJs,
+  recordInvitationDelivery as recordDeliveryJs,
+  listInvitations as listInvitationsJs,
+} from "@/lib/accounts.mjs";
+
+/* bookings ------------------------------------------------------------------ */
+
+export type ServiceRow = { id: string; name: string; duration_minutes: number; price_minor: number | null; currency: string | null };
+export type StaffRow = { id: string; name: string; timezone: string | null };
+
+export type AppointmentRow = {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  service_name: string;
+  staff_name: string;
+  contact_name: string | null;
+};
+
+export type BookingResult = {
+  ok: boolean;
+  reason?: string;
+  appointmentId?: string;
+  startsAt?: string;
+  endsAt?: string;
+  service?: string;
+  staff?: string;
+  zone?: string;
+};
+
+export function zonedToUtc(dateIso: string, minuteOfDay: number, timeZone: string): string {
+  return zonedToUtcJs(dateIso, minuteOfDay, timeZone) as string;
+}
+
+export function createService(db: unknown, orgId: string, input: { name: string; durationMinutes: number; priceMinor?: number | null; currency?: string | null; actorUserId?: string | null }): { serviceId: string; name: string; durationMinutes: number } {
+  return createServiceJs(db as never, orgId, input as never) as never;
+}
+
+export function createStaff(db: unknown, orgId: string, input: { name: string; timezone?: string | null; userId?: string | null; actorUserId?: string | null }): { staffId: string; name: string } {
+  return createStaffJs(db as never, orgId, input as never) as never;
+}
+
+export function bookAppointment(
+  db: unknown,
+  orgId: string,
+  input: { staffId: string; serviceId: string; contactId?: string | null; startsAt: string; notes?: string | null; actorUserId?: string | null },
+): BookingResult {
+  return bookJs(db as never, orgId, input as never) as BookingResult;
+}
+
+export function setAppointmentStatus(
+  db: unknown,
+  orgId: string,
+  appointmentId: string,
+  status: string,
+  options?: { actorUserId?: string | null },
+): { ok: boolean; reason?: string } {
+  return setStatusJs(db as never, orgId, appointmentId, status, options as never) as never;
+}
+
+export function listAppointments(db: unknown, orgId: string, options?: { from?: string | null; to?: string | null; limit?: number }): AppointmentRow[] {
+  return listAppointmentsJs(db as never, orgId, options as never) as never;
+}
+
+export function listServices(db: unknown, orgId: string): ServiceRow[] {
+  return listServicesJs(db as never, orgId) as never;
+}
+
+export function listStaffRows(db: unknown, orgId: string): StaffRow[] {
+  return listStaffJs(db as never, orgId) as never;
+}
+
+export function freeSlots(db: unknown, orgId: string, staffId: string, dateIso: string, minutes: number): { startsAt: string; endsAt: string }[] {
+  return freeSlotsJs(db as never, orgId, staffId, dateIso, minutes) as never;
+}
+
+/* email --------------------------------------------------------------------- */
+
+export type SendResult = { ok: boolean; id?: string | null; reason?: string; status?: number; detail?: string };
+
+export function sendEmail(
+  message: { to: string; subject: string; html: string; replyTo?: string | null },
+  options?: { key?: string; fetchImpl?: unknown },
+): Promise<SendResult> {
+  return sendEmailJs(message as never, options as never) as Promise<SendResult>;
+}
+
+export function invitationEmail(input: { workspaceName: string; inviterEmail: string | null; role: string; acceptUrl?: string | null }): { subject: string; html: string } {
+  return invitationEmailJs(input as never) as { subject: string; html: string };
+}
+
+export function createInvitation(
+  db: unknown,
+  orgId: string,
+  input: { email: string; role: string; actorUserId?: string | null },
+): { invitationId: string; token: string; email: string; role: string } {
+  return createInvitationJs(db as never, orgId, input as never) as never;
+}
+
+export function recordInvitationDelivery(db: unknown, invitationId: string, result: SendResult): { ok: boolean } {
+  return recordDeliveryJs(db as never, invitationId, result as never) as never;
+}
+
+export type InvitationRow = {
+  id: string;
+  email: string;
+  role: string;
+  expires_at: string;
+  accepted_at: string | null;
+  sent_at: string | null;
+  send_error: string | null;
+};
+
+export function listInvitations(db: unknown, orgId: string): InvitationRow[] {
+  return listInvitationsJs(db as never, orgId) as never;
+}
 
 export type BillingEventInput = {
   provider: string;

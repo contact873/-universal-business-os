@@ -113,6 +113,50 @@ for (const workspace of workspaces) {
   }
 }
 
+/* the diary is a second surface that can leak -------------------------------- */
+
+function namesUniqueTo(orgId, table, column) {
+  return db
+    .prepare(
+      `select ${column} as name from ${table}
+        where organization_id = ? and ${column} is not null
+          and ${column} not in (select ${column} from ${table} where organization_id <> ? and ${column} is not null)`,
+    )
+    .all(orgId, orgId)
+    .map((row) => row.name);
+}
+
+for (const workspace of workspaces) {
+  const { token } = createSession(db, { userId: workspace.userId, orgId: workspace.id });
+  const page = await fetchWorkspace(token, "/app/bookings");
+
+  check(`${workspace.name}: reaches the bookings page`, page.status === 200, `status ${page.status}`);
+
+  for (const name of namesUniqueTo(workspace.id, "services", "name")) {
+    check(`${workspace.name}: sees its own service, ${name}`, page.html.includes(name));
+  }
+  for (const name of namesUniqueTo(workspace.id, "staff", "name")) {
+    check(`${workspace.name}: sees its own staff member, ${name}`, page.html.includes(name));
+  }
+
+  for (const other of workspaces.filter((w) => w.id !== workspace.id)) {
+    for (const name of namesUniqueTo(other.id, "services", "name")) {
+      check(
+        `${workspace.name}: does NOT see ${other.name}'s service, ${name}`,
+        !page.html.includes(name),
+        "another workspace's service appeared in the diary",
+      );
+    }
+    for (const name of namesUniqueTo(other.id, "staff", "name")) {
+      check(
+        `${workspace.name}: does NOT see ${other.name}'s staff, ${name}`,
+        !page.html.includes(name),
+        "another workspace's staff member appeared in the diary",
+      );
+    }
+  }
+}
+
 /* a session with no workspace must not land on a dashboard ------------------ */
 
 const orphan = db

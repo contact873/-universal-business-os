@@ -1,11 +1,10 @@
 import { requireWorkspace } from "@/lib/session-server";
 import { getDb } from "@/lib/db.mjs";
-import { auditTrail, type AuditRow } from "@/lib/types";
+import { auditTrail, listInvitations, type AuditRow } from "@/lib/types";
 import { can } from "@/lib/roles.mjs";
 import { inviteMemberAction } from "@/app/actions";
 
 type Member = { email: string; name: string | null; role: string };
-type Invitation = { id: string; email: string; role: string; expires_at: string; accepted_at: string | null };
 
 export default async function Settings({
   searchParams,
@@ -31,13 +30,7 @@ export default async function Settings({
     )
     .all(session.orgId) as Member[];
 
-  const invitations = can(session.role, "member:invite")
-    ? (db
-        .prepare(
-          "select id, email, role, expires_at, accepted_at from invitations where organization_id = ? order by created_at desc",
-        )
-        .all(session.orgId) as Invitation[])
-    : [];
+  const invitations = can(session.role, "member:invite") ? listInvitations(db, session.orgId) : [];
 
   const audit: AuditRow[] = can(session.role, "audit:read")
     ? auditTrail(db, session.orgId, { limit: 25 })
@@ -134,8 +127,12 @@ export default async function Settings({
                 <ul className="small muted" style={{ marginTop: "var(--s4)" }}>
                   {invitations.map((invitation) => (
                     <li key={invitation.id}>
-                      {invitation.email} as {invitation.role}
-                      {invitation.accepted_at ? " (accepted)" : " (pending)"}
+                      {invitation.email} as {invitation.role}{" "}
+                      {invitation.accepted_at
+                        ? "(accepted)"
+                        : invitation.sent_at
+                          ? "(emailed)"
+                          : `(not emailed${invitation.send_error ? `: ${invitation.send_error}` : ""})`}
                     </li>
                   ))}
                 </ul>

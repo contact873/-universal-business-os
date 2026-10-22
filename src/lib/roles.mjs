@@ -27,6 +27,11 @@ const REQUIRED = {
   "lead:write": "staff",
   "lead:assign": "manager",
   "lead:delete": "manager",
+  "booking:read": "viewer",
+  "booking:write": "staff",
+  "booking:cancel": "staff",
+  "service:write": "manager",
+  "staff:write": "manager",
 };
 
 export function isRole(value) {

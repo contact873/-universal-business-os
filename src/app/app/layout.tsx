@@ -20,6 +20,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
           <Link href="/app">Overview</Link>
           <Link href="/app/contacts">Contacts</Link>
           <Link href="/app/leads">Leads</Link>
+          <Link href="/app/bookings">Bookings</Link>
           <Link href="/app/settings">Settings</Link>
         </nav>
       </section>

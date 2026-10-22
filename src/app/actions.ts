@@ -19,6 +19,16 @@ import {
   revokeSession,
   switchOrg,
   withinLimit,
+  createInvitation,
+  recordInvitationDelivery,
+  sendEmail,
+  invitationEmail,
+  createService,
+  createStaff,
+  bookAppointment,
+  setAppointmentStatus,
+  zonedToUtc,
+  listStaffRows,
 } from "@/lib/types";
 
 // A "use server" module may export async functions and nothing else, so constants and helpers
@@ -211,30 +221,155 @@ export async function inviteMemberAction(form: FormData) {
   const email = field(form, "email");
   const role = field(form, "role") || "staff";
 
-  db()
-    .prepare(
-      `insert into invitations (id, organization_id, email, role, token_hash, expires_at, created_at)
-       values (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      newId("inv"),
-      session.orgId,
-      email.toLowerCase(),
+  // Stored first, sent second. If the provider is down the invitation still exists and is shown as
+  // pending, rather than vanishing with the failure.
+  let invitation;
+  try {
+    invitation = createInvitation(db(), session.orgId, {
+      email,
       role,
-      newId("tok"),
-      new Date(Date.now() + 7 * 86_400_000).toISOString(),
-      nowIso(),
-    );
+      actorUserId: session.user.id,
+    });
+  } catch (error) {
+    redirect(`/app/settings?error=${message((error as Error).message)}`);
+  }
 
-  writeAudit(db(), {
-    orgId: session.orgId,
-    actorUserId: session.user.id,
-    action: "member.invite",
-    entity: "invitation",
-    meta: { email, role },
+  const workspace = db()
+    .prepare("select name from organizations where id = ?")
+    .get(session.orgId) as { name: string } | undefined;
+
+  const body = invitationEmail({
+    workspaceName: workspace?.name ?? "the workspace",
+    inviterEmail: session.user.email,
+    role,
   });
 
-  // Sending the email is milestone 2. The invitation is recorded, and the settings page shows
-  // it as pending, rather than the interface pretending a message went out.
-  redirect(`/app/settings?invited=${encodeURIComponent(email)}`);
+  const sent = await sendEmail({ to: invitation.email, subject: body.subject, html: body.html });
+  recordInvitationDelivery(db(), invitation.invitationId, sent);
+
+  if (sent.ok) {
+    redirect(`/app/settings?invited=${encodeURIComponent(invitation.email)}`);
+  }
+
+  // The honest message: the invitation exists, and no email left the building.
+  const why = sent.reason === "not_configured" ? "no email provider is configured" : `the provider refused it (${sent.reason})`;
+  redirect(
+    `/app/settings?error=${message(`Invitation for ${invitation.email} was recorded, but not emailed because ${why}.`)}`,
+  );
+}
+
+export async function createServiceAction(form: FormData) {
+  const session = await requireWorkspace();
+  try {
+    assertCan(session.role, "service:write");
+  } catch {
+    redirect(`/app/bookings?error=${message("Only a manager or above can add services.")}`);
+  }
+
+  try {
+    createService(db(), session.orgId, {
+      name: field(form, "name"),
+      durationMinutes: Number(field(form, "durationMinutes")),
+      priceMinor: field(form, "priceMinor") ? Math.round(Number(field(form, "priceMinor")) * 100) : null,
+      currency: field(form, "currency") || null,
+      actorUserId: session.user.id,
+    });
+  } catch (error) {
+    redirect(`/app/bookings?error=${message((error as Error).message)}`);
+  }
+
+  redirect("/app/bookings");
+}
+
+export async function createStaffAction(form: FormData) {
+  const session = await requireWorkspace();
+  try {
+    assertCan(session.role, "staff:write");
+  } catch {
+    redirect(`/app/bookings?error=${message("Only a manager or above can add staff.")}`);
+  }
+
+  try {
+    createStaff(db(), session.orgId, {
+      name: field(form, "name"),
+      timezone: field(form, "timezone") || null,
+      actorUserId: session.user.id,
+    });
+  } catch (error) {
+    redirect(`/app/bookings?error=${message((error as Error).message)}`);
+  }
+
+  redirect("/app/bookings");
+}
+
+export async function bookAppointmentAction(form: FormData) {
+  const session = await requireWorkspace();
+  try {
+    assertCan(session.role, "booking:write");
+  } catch {
+    redirect(`/app/bookings?error=${message("Your role cannot book appointments.")}`);
+  }
+
+  const staffId = field(form, "staffId");
+  const serviceId = field(form, "serviceId");
+  const when = field(form, "startsAt"); // from a datetime-local input: 2026-03-10T10:00
+
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/.exec(when);
+  if (!match) {
+    redirect(`/app/bookings?error=${message("Pick a date and a time.")}`);
+  }
+
+  // The person typing means the clinic's local wall clock, so the time is interpreted in the staff
+  // member's zone rather than in whatever the browser thinks the timezone is.
+  const staff = listStaffRows(db(), session.orgId).find((member) => member.id === staffId);
+  if (!staff) {
+    redirect(`/app/bookings?error=${message("Choose a staff member.")}`);
+  }
+
+  const zone = staff.timezone || (db()
+    .prepare("select timezone from organizations where id = ?")
+    .get(session.orgId) as { timezone: string | null } | undefined)?.timezone || "UTC";
+
+  const minuteOfDay = Number(match[2]) * 60 + Number(match[3]);
+  const startsAt = zonedToUtc(match[1], minuteOfDay, zone);
+
+  const result = bookAppointment(db(), session.orgId, {
+    staffId,
+    serviceId,
+    startsAt,
+    contactId: field(form, "contactId") || null,
+    notes: field(form, "notes") || null,
+    actorUserId: session.user.id,
+  });
+
+  if (!result.ok) {
+    const explain =
+      result.reason === "conflict"
+        ? "That slot is already taken."
+        : result.reason === "outside_hours"
+          ? `That time is outside the working day in ${zone}.`
+          : result.reason === "unknown_service"
+            ? "Choose a service."
+            : result.reason === "unknown_staff"
+              ? "Choose a staff member."
+              : `The booking was refused (${result.reason}).`;
+    redirect(`/app/bookings?error=${message(explain)}`);
+  }
+
+  redirect("/app/bookings?booked=1");
+}
+
+export async function cancelAppointmentAction(form: FormData) {
+  const session = await requireWorkspace();
+  const appointmentId = field(form, "appointmentId");
+
+  const result = setAppointmentStatus(db(), session.orgId, appointmentId, "cancelled", {
+    actorUserId: session.user.id,
+  });
+
+  if (!result.ok) {
+    redirect(`/app/bookings?error=${message("That appointment was not found in this workspace.")}`);
+  }
+
+  redirect("/app/bookings?cancelled=1");
 }

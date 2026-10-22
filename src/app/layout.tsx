@@ -47,6 +47,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <Link href="/app">Dashboard</Link>
                   <Link href="/app/contacts">Contacts</Link>
                   <Link href="/app/leads">Leads</Link>
+                  <Link href="/app/bookings">Bookings</Link>
                   <Link href="/app/settings">Settings</Link>
                   {(session as { user: { is_platform_admin?: number } }).user.is_platform_admin ? (
                     <Link href="/admin">Platform</Link>

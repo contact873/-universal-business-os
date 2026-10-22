@@ -49,7 +49,11 @@ declare
     'leads',
     'lead_activities',
     'audit_logs',
-    'usage_events'
+    'usage_events',
+    'services',
+    'staff',
+    'availability',
+    'appointments'
   ];
 begin
   foreach t in array tenant_tables loop

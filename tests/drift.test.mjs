@@ -4,13 +4,21 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { report, compare, parseSchema, parseTenantTables, checkTenantCoverage } from "../scripts/drift.mjs";
+import {
+  report,
+  compare,
+  parseSchema,
+  parseTenantTables,
+  checkTenantCoverage,
+  readDialect,
+} from "../scripts/drift.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 
-const sqliteSql = read("supabase/migrations/sqlite/0001_init.sql");
-const postgresSql = read("supabase/migrations/postgres/0001_init.sql");
+// Every migration in each dialect, so a table added later cannot escape these checks.
+const sqliteSql = readDialect("sqlite");
+const postgresSql = readDialect("postgres");
 const rlsSql = read("supabase/policies/rls.sql");
 
 test("the parser reads tables and ignores constraint lines", () => {

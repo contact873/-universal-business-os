@@ -20,6 +20,8 @@ listed at the bottom as not built, and nothing in the interface pretends otherwi
 | Audit | Every consequential action recorded, credentials redacted before storage |
 | Entitlements | Plan limits readable and enforced on the server, checked before a contact is added |
 | Billing events | Verified webhook signatures, idempotent handling, subscription state, entitlements synced on upgrade and revoked on downgrade |
+| Bookings | Services, staff, weekly availability and appointments, with opening-hours and overlap rules enforced and timezones handled through Intl |
+| Email | Invitations are stored first and then sent; when no provider is configured the row records why nothing was delivered |
 | Public intake | A website posts enquiries in with a workspace intake key |
 | Health | `/api/health` touches the database, so it fails when the database is down |
 
@@ -32,8 +34,8 @@ listed at the bottom as not built, and nothing in the interface pretends otherwi
   an account to test against.
 - **No messaging channels.** No WhatsApp, no Instagram, no voice.
 - **No AI assistant.**
-- **No email sending.** Invitations are recorded in the database and not sent.
-- **No bookings module.** The blueprint's scheduling comes next.
+- **No email provider key.** The sending code exists and is tested against a stub; with no key it
+  reports `not_configured` rather than claiming a message went out.
 
 ---
 
@@ -76,14 +78,14 @@ Recorded results at the time of writing:
 
 | Suite | Result |
 |---|---|
-| Unit and integration (`node --test`) | 74 passed, 0 failed |
+| Unit and integration (`node --test`) | 103 passed, 0 failed |
 | Drift self-check | 11 passed, 0 failed |
-| Schema drift between dialects | in sync, 17 tables, 10 tenant tables with policies |
-| HTTP checks against a running server | 32 passed, 0 failed |
-| Isolation proof over HTTP | 17 passed, 0 failed |
+| Schema drift between dialects | in sync, 21 tables across 6 migrations, 14 tenant tables with policies |
+| HTTP checks against a running server | 33 passed, 0 failed, and repeatable back to back |
+| Isolation proof over HTTP | 25 passed, 0 failed, covering the CRM and the diary |
 | Vendored `guard.mjs` self-test | 58 passed, 0 failed |
 | Vendored audience store self-test | 83 passed, 0 failed |
-| Production build | 14 routes, no type errors |
+| Production build | 13 pages, 4 API routes, no type errors |
 | Deployment preflight | CLEAR TO DEPLOY, 13 checks, 1 warning |
 
 ### The isolation proof, in plain terms
@@ -109,8 +111,10 @@ src/lib/
   roles.mjs        owner, admin, manager, staff, viewer; per-record checks
   tenant.mjs       the only module that touches tenant-owned tables
   audit.mjs        the audit trail, with redaction
-  accounts.mjs     users, organisations, memberships, entitlements
+  accounts.mjs     users, organisations, memberships, invitations, entitlements
   billing.mjs      provider events in, subscription state and entitlements out
+  bookings.mjs     services, staff, availability, appointments, timezone conversion
+  email.mjs        store first, send second, record what happened
   subscription-state.mjs   the single rule for whether a subscription still pays
   config.mjs       every environment read, in one place
   types.ts         the typed contract for the plain JavaScript modules
@@ -181,6 +185,37 @@ checks below. Nine of the HTTP checks drive exactly that path.
 
 ---
 
+## Bookings, and the two rules that decide whether it is usable
+
+**Timezones are not offsets.** Availability is stored as a weekday plus minutes from midnight, in
+the staff member's own zone, and converted through `Intl` at read time. A stored `+04:00` would move
+every London appointment by an hour twice a year, silently. The tests assert a Dubai conversion and
+a British Summer Time conversion, because those are the two cases a naive implementation gets wrong.
+
+**Availability is not enough.** A service takes time, so an appointment has to fit entirely inside
+the working day: a 90 minute treatment cannot start 30 minutes before closing. That single check
+catches the most common booking bug, which is a system that only looks at the start time.
+
+| Rule | Behaviour |
+|---|---|
+| Outside opening hours | Refused with `outside_hours` |
+| Runs past closing | Refused with `outside_hours`, because the end is checked too |
+| Overlaps another appointment | Refused with `conflict`, naming the one it clashes with |
+| Back to back | Allowed. Ending exactly when the next begins is not an overlap |
+| Cancelled | Frees the slot immediately |
+| Another workspace's staff or service | Refused as unknown, never silently accepted |
+
+The SQLite and Postgres files differ here on purpose: Postgres adds a real overlap exclusion
+constraint, so the database refuses a double booking even if a future code path forgets to check.
+SQLite cannot express that, so there the application rule is the only one, and the migration says so
+rather than pretending otherwise.
+
+Email follows the same discipline as leads: **store, then send, then record what happened**. An
+invitation exists in the database before a provider is called, and its row carries `sent_at` or the
+reason it was not sent, so "invited" and "emailed" are two different facts.
+
+---
+
 ## Deploying
 
 The app **refuses to start on a serverless host without `DATABASE_URL`**. That is intentional: on
@@ -206,10 +241,11 @@ of the anon key.
 
 1. The provider adapter that returns a checkout URL, once an account exists to test against. The
    webhook path behind it is finished.
-2. Bookings and staff calendars.
-3. Email delivery for invitations and lead notifications.
-4. One messaging channel, live only when it genuinely is.
-5. The AI assistant, with tool permissions scoped to one workspace and a human handoff.
+2. A Resend key, so invitations actually leave the building. The sending code and its failure paths
+   are finished and tested against a stub.
+3. One messaging channel, live only when it genuinely is.
+4. The AI assistant, with tool permissions scoped to one workspace and a human handoff.
+5. Recurring appointments and reminders, which are the two things clinics ask for after the diary.
 
 ---
 

@@ -60,7 +60,9 @@ async function post(payload, contentType = "application/json") {
 }
 
 const org = db
-  .prepare("select id, name, intake_key from organizations where intake_key is not null order by created_at limit 1")
+  .prepare(
+    "select id, name, intake_key, default_country from organizations where intake_key is not null order by created_at limit 1",
+  )
   .get();
 
 if (!org) {
@@ -88,11 +90,36 @@ try {
 
 /* the working path --------------------------------------------------------- */
 
+// The check at the end of this file deliberately exhausts the rate limit window, which means a
+// second run started within the same minute would be refused before it tested anything. Waiting
+// here is what makes the script repeatable rather than a one-shot.
+async function waitForRateWindow() {
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const probe = await fetch(`${BASE}/api/enquiries`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    if (probe.status !== 429) return;
+    if (attempt === 0) console.log("  note  waiting for the previous run's rate limit window to clear");
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+}
+
+await waitForRateWindow();
+
 const stamp = Date.now();
+// A unique mobile number per run. Reusing one made this script pass only against a fresh
+// database: the second run matched the contact the first run created and then failed its own
+// "a contact was created" assertion, which says nothing about the application.
+const runDigits = String(stamp).slice(-7);
+const mobile = `050${runDigits}`;
+const expectedPhone = `${org.default_country ?? "+971"}${mobile.slice(1)}`;
+
 const payload = {
   intakeKey: org.intake_key,
   name: "Verify Script",
-  mobile: "0501234999",
+  mobile,
   message: `verification run ${stamp}`,
   source: "verify",
   tags: ["verification"],
@@ -111,7 +138,11 @@ const identity = db
     "select value_normalized from contact_identities where organization_id = ? and kind = 'phone' order by first_seen_at desc limit 1",
   )
   .get(org.id);
-check("the phone number was normalised for matching", identity?.value_normalized === "+971501234999", identity?.value_normalized);
+check(
+  "the phone number was normalised for matching",
+  identity?.value_normalized === expectedPhone,
+  `${identity?.value_normalized} (expected ${expectedPhone})`,
+);
 
 /* idempotency -------------------------------------------------------------- */
 
@@ -166,6 +197,9 @@ check("and it redirects to the sign in page", String(appPage.headers.get("locati
 
 const adminPage = await fetch(`${BASE}/admin`, { redirect: "manual" });
 check("platform administration is not reachable without a session", adminPage.status >= 300 && adminPage.status < 400, `status ${adminPage.status}`);
+
+const bookingsPage = await fetch(`${BASE}/app/bookings`, { redirect: "manual" });
+check("the diary is not reachable without a session", bookingsPage.status >= 300 && bookingsPage.status < 400, `status ${bookingsPage.status}`);
 
 /* billing webhooks --------------------------------------------------------- */
 

@@ -12,6 +12,7 @@ import { apply } from "../src/lib/migrate-core.mjs";
 import { DATA_DIR, DATABASE_URL, IS_PRODUCTION, PLATFORM_ADMIN_EMAILS } from "../src/lib/config.mjs";
 import { createUser, createOrganization, addMember } from "../src/lib/accounts.mjs";
 import { createTenantStore } from "../src/lib/tenant.mjs";
+import { createService, createStaff, book, zonedToUtc, listServices } from "../src/lib/bookings.mjs";
 
 const flag = (name) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -129,6 +130,40 @@ for (const spec of WORKSPACES) {
 
   const stats = store.stats(org.id);
   summary.push({ name: spec.name, owner: spec.owner, orgId: org.id, ...stats });
+}
+
+/* a bookable diary for the first workspace --------------------------------- */
+
+const primary = db.prepare("select id, timezone from organizations order by created_at limit 1").get();
+
+if (primary) {
+  const already = db.prepare("select count(*) as n from services where organization_id = ?").get(primary.id).n;
+
+  if (!already) {
+    createService(db, primary.id, { name: "Consultation", durationMinutes: 30, priceMinor: 15000, currency: "AED" });
+    createService(db, primary.id, { name: "Treatment", durationMinutes: 90, priceMinor: 90000, currency: "AED" });
+    const { staffId } = createStaff(db, primary.id, { name: "Dana", timezone: primary.timezone || "Asia/Dubai" });
+
+    // One booked appointment and one cancelled, so the diary shows both states without inventing
+    // anything about a real client.
+    const monday = (() => {
+      const date = new Date();
+      while (date.getUTCDay() !== 1) date.setUTCDate(date.getUTCDate() + 1);
+      return date.toISOString().slice(0, 10);
+    })();
+
+    const service = listServices(db, primary.id)[0];
+    const booked = book(db, primary.id, {
+      staffId,
+      serviceId: service.id,
+      startsAt: zonedToUtc(monday, 10 * 60, primary.timezone || "Asia/Dubai"),
+      notes: "Seeded example",
+    });
+
+    if (booked.ok) {
+      console.log(`  seeded diary: services, staff, and one appointment on ${monday}`);
+    }
+  }
 }
 
 /* report ------------------------------------------------------------------- */

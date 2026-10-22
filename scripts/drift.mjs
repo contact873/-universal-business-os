@@ -14,11 +14,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { migrationFileParity } from "../src/lib/migrate-core.mjs";
+import { migrationFileParity, migrationFiles } from "../src/lib/migrate-core.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SQLITE = path.join(ROOT, "supabase", "migrations", "sqlite", "0001_init.sql");
-const POSTGRES = path.join(ROOT, "supabase", "migrations", "postgres", "0001_init.sql");
 const RLS = path.join(ROOT, "supabase", "policies", "rls.sql");
 
 const CONSTRAINTS = /^(primary|unique|foreign|constraint|check|exclude|key)\b/i;
@@ -41,6 +39,14 @@ export function parseSchema(sql) {
     tables.set(name.toLowerCase(), columns);
   }
   return tables;
+}
+
+// Every migration, not just the first one. Comparing only 0001 meant a table added in 0004 could
+// be missing from one dialect, or missing a row level security policy, and nothing would notice.
+export function readDialect(dialect) {
+  return migrationFiles(dialect)
+    .map((migration) => `-- ${migration.file}\n${migration.sql}`)
+    .join("\n\n");
 }
 
 export function parseTenantTables(rlsSql) {
@@ -133,8 +139,8 @@ function selftest() {
     }
   };
 
-  const sqliteSql = fs.readFileSync(SQLITE, "utf8");
-  const postgresSql = fs.readFileSync(POSTGRES, "utf8");
+  const sqliteSql = readDialect("sqlite");
+  const postgresSql = readDialect("postgres");
   const rlsSql = fs.readFileSync(RLS, "utf8");
 
   const parse = parseSchema("create table if not exists t (\n  a text,\n  primary key (a)\n);");
@@ -180,14 +186,11 @@ const args = process.argv.slice(2);
 if (isMain && args.includes("--selftest")) {
   selftest();
 } else if (isMain) {
-  const result = report(
-    fs.readFileSync(SQLITE, "utf8"),
-    fs.readFileSync(POSTGRES, "utf8"),
-    fs.readFileSync(RLS, "utf8"),
-  );
+  const result = report(readDialect("sqlite"), readDialect("postgres"), fs.readFileSync(RLS, "utf8"));
 
-  console.log(`  tables: ${result.drift.tableCount} in sqlite`);
+  console.log(`  tables: ${result.drift.tableCount} across all migrations`);
   console.log(`  tenant tables with policies: ${result.coverage.declared.length}`);
+  console.log(`  migration files: ${result.parity.sqlite.length}`);
 
   if (result.ok) {
     console.log("\n  SCHEMAS IN SYNC\n");
