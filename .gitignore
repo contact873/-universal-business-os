@@ -1,0 +1,19 @@
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Runtime data: the SQLite database and its WAL siblings are machine state, not source.
+data/
+*.db
+*.db-wal
+*.db-shm
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+.DS_Store

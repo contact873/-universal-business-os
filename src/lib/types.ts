@@ -1,0 +1,229 @@
+// The typed contract for the plain JavaScript tenant store.
+//
+// The store itself is JavaScript so that the same code can be imported by node:test and by
+// Next. These interfaces are what the pages rely on, written out rather than inferred so that a
+// change to the store's shape fails here at build time instead of in a browser.
+
+import { getDb } from "@/lib/db.mjs";
+import { createTenantStore } from "@/lib/tenant.mjs";
+import {
+  createUser as createUserJs,
+  authenticate as authenticateJs,
+  createOrganization as createOrganizationJs,
+  membershipsFor as membershipsForJs,
+  organizationByIntakeKey as organizationByIntakeKeyJs,
+} from "@/lib/accounts.mjs";
+import {
+  createSession as createSessionJs,
+  revokeSession as revokeSessionJs,
+  switchOrg as switchOrgJs,
+} from "@/lib/sessions.mjs";
+import { createRouteHandler as createRouteHandlerJs } from "@/lib/guard.mjs";
+import { listAudit as listAuditJs } from "@/lib/audit.mjs";
+
+export type AuditRow = {
+  id: string;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  meta_json: string | null;
+  created_at: string;
+  actor_email: string | null;
+};
+
+export function auditTrail(db: unknown, orgId: string, options?: { limit?: number }): AuditRow[] {
+  return listAuditJs(db as never, orgId, options as never) as AuditRow[];
+}
+
+export type Identity = {
+  id: string;
+  kind: string;
+  value_raw: string;
+  value_normalized: string;
+  label: string | null;
+  needs_review: number;
+};
+
+export type Contact = {
+  id: string;
+  organization_id: string;
+  name: string | null;
+  source: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  submission_count: number;
+};
+
+export type ContactDetail = Contact & {
+  identities: Identity[];
+  tags: string[];
+  leads: Lead[];
+};
+
+export type Lead = {
+  id: string;
+  organization_id: string;
+  contact_id: string;
+  stage: string;
+  source: string | null;
+  form_id: string | null;
+  message: string | null;
+  value_minor: number | null;
+  currency: string | null;
+  owner_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Activity = {
+  id: string;
+  kind: string;
+  body: string | null;
+  created_at: string;
+};
+
+export type LeadDetail = Lead & { activities: Activity[] };
+
+export type Stats = {
+  contacts: number;
+  leads: number;
+  byStage: { stage: string; n: number }[];
+  newThisWeek: number;
+  recent: {
+    id: string;
+    stage: string;
+    source: string | null;
+    created_at: string;
+    contact_name: string | null;
+  }[];
+};
+
+export type CaptureResult =
+  | { ok: true; replayed: boolean; created: boolean; contactId: string; leadId: string; identities: Identity[]; errors: unknown[] }
+  | { ok: false; errors: unknown[]; identities: unknown[]; contactId: null; leadId: null };
+
+export type TenantStore = {
+  listContacts(orgId: string, options?: { limit?: number; tag?: string | null }): Contact[];
+  getContact(orgId: string, contactId: string): ContactDetail | null;
+  updateContact(orgId: string, contactId: string, patch: { name?: string }, options?: { actorUserId?: string }): number;
+  deleteContact(orgId: string, contactId: string, options?: { role?: string; actorUserId?: string }): number;
+  addTag(orgId: string, contactId: string, tag: string): number;
+  removeTag(orgId: string, contactId: string, tag: string): number;
+  capture(orgId: string, submission: Record<string, unknown>, options?: Record<string, unknown>): CaptureResult;
+  listLeads(orgId: string, options?: { stage?: string | null; ownerUserId?: string | null; limit?: number }): Lead[];
+  getLead(orgId: string, leadId: string): LeadDetail | null;
+  addActivity(orgId: string, leadId: string, activity: { kind?: string; body?: string | null; actorUserId?: string | null }): number;
+  updateLeadStage(orgId: string, leadId: string, stage: string, options?: { role?: string; actorUserId?: string }): number;
+  assignLead(orgId: string, leadId: string, ownerUserId: string, options?: { role?: string; actorUserId?: string }): number;
+  stats(orgId: string): Stats;
+};
+
+export function tenantStore(): TenantStore {
+  return createTenantStore(getDb()) as unknown as TenantStore;
+}
+
+// Typed wrappers for the accounts module.
+//
+// A parameter with a default in plain JavaScript infers as `null | undefined` rather than the
+// type callers will actually pass, so the boundary is declared once here instead of being cast
+// at each call site.
+
+export type NewUserInput = {
+  email: string;
+  password: string;
+  name?: string | null;
+  platformAdmin?: boolean;
+};
+
+export function createUser(db: unknown, input: NewUserInput): { userId: string; email: string } {
+  return createUserJs(db as never, input as never) as { userId: string; email: string };
+}
+
+export function authenticate(
+  db: unknown,
+  email: string,
+  password: string,
+): { ok: boolean; reason?: string; user?: { id: string; email: string; name: string | null; is_platform_admin: number } } {
+  return authenticateJs(db as never, email, password) as never;
+}
+
+export type NewOrganizationInput = {
+  name: string;
+  industry?: string | null;
+  timezone?: string;
+  ownerUserId?: string | null;
+  slug?: string | null;
+  plan?: string | null;
+  defaultCountry?: string | null;
+};
+
+export function createOrganization(
+  db: unknown,
+  input: NewOrganizationInput,
+): { orgId: string; slug: string } {
+  return createOrganizationJs(db as never, input as never) as { orgId: string; slug: string };
+}
+
+export type Membership = { orgId: string; role: string; name: string; slug: string };
+
+export function membershipsFor(db: unknown, userId: string): Membership[] {
+  return membershipsForJs(db as never, userId) as never;
+}
+
+export function organizationByIntakeKey(
+  db: unknown,
+  key: string,
+): { id: string; name: string; slug: string; industry: string | null; default_country: string | null } | null {
+  return organizationByIntakeKeyJs(db as never, key) as never;
+}
+
+export function database(): ReturnType<typeof getDb> {
+  return getDb();
+}
+
+// Session wrappers, for the same reason: optional parameters with defaults infer as
+// `null | undefined` in the JavaScript module and reject the values callers pass.
+
+export type SessionToken = { sessionId: string; token: string; expiresAt: string };
+
+export function createSession(
+  db: unknown,
+  input: { userId: string; orgId?: string | null; ttlMs?: number; now?: number },
+): SessionToken {
+  return createSessionJs(db as never, input as never) as SessionToken;
+}
+
+export function revokeSession(db: unknown, token: string): number {
+  return revokeSessionJs(db as never, token) as number;
+}
+
+export function switchOrg(
+  db: unknown,
+  sessionId: string,
+  orgId: string,
+): { ok: boolean; reason?: string; role?: string } {
+  return switchOrgJs(db as never, sessionId, orgId) as never;
+}
+
+// The request boundary from the api-and-auth skill, typed. Every option that has a default in
+// the JavaScript module would otherwise reject the value a caller passes.
+
+export type RouteHandlerOptions = {
+  handler: (context: { data: any; identity: any; request: Request }) => Promise<unknown>;
+  schema?: Record<string, unknown> | null;
+  secret?: string | null;
+  auth?: "required" | "optional" | "none";
+  cookieName?: string;
+  rateLimit?: { limit: number; windowMs: number } | null;
+  rateLimitByIdentity?: { limit: number; windowMs: number } | null;
+  authorize?: ((context: { identity: any; data: any; request: Request }) => boolean | Promise<boolean>) | null;
+  onError?: ((error: unknown, context: { request: Request; identity: any }) => void) | null;
+  maxBytes?: number;
+  now?: () => number;
+};
+
+export function createRouteHandler(
+  options: RouteHandlerOptions,
+): (request: Request) => Promise<Response> {
+  return createRouteHandlerJs(options as never) as never;
+}
