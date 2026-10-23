@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { DATABASE_URL, DATA_DIR, IS_PRODUCTION, IS_SERVERLESS, assertServerConfig } from "./config.mjs";
+import { DATABASE_URL, DATA_DIR, IS_SERVERLESS, assertServerConfig } from "./config.mjs";
 import { apply, currentVersion } from "./migrate-core.mjs";
 
 let handle = null;
@@ -39,11 +39,23 @@ export function getDb() {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
 
-  if (currentVersion(db) === 0) {
-    if (IS_PRODUCTION) {
-      throw new Error("Database has no schema. Run `npm run migrate` before starting in production.");
-    }
-    apply(db, "sqlite");
+  // Migrations run here as well as in the release command, and the reason is a deploy-ordering
+  // trap that cost a failed deployment to find.
+  //
+  // `release_command` runs on its own machine. On a first deploy the volume is still uninitialised
+  // at that moment, so the release machine mounts nothing, migrates a throwaway filesystem, and
+  // reports success. The app machine then starts against an empty database. Here it is the process
+  // that owns the file doing the work, on the machine the volume is actually attached to.
+  //
+  // Safe to run every boot: migrations are versioned, and a database already at the current version
+  // costs one select. A failure is fatal rather than tolerated, because a half-migrated schema
+  // serving customers is worse than an app that will not start.
+  try {
+    const applied = apply(db, "sqlite", { log: (line) => console.log(`[db] ${line}`) });
+    if (applied.length) console.log(`[db] applied ${applied.length} migration(s), now at version ${currentVersion(db)}`);
+  } catch (error) {
+    db.close();
+    throw new Error(`Refusing to start: the database could not be migrated. ${error.message}`);
   }
 
   handle = db;

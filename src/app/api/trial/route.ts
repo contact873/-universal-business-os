@@ -3,7 +3,7 @@ import { createRouteHandler, createTrialAccount, createCardTrialAccount, createF
 import { ensurePlans } from "@/lib/plans.mjs";
 import { sendEmail } from "@/lib/email.mjs";
 import { PUBLIC_ORIGINS, SIGNUP_MODE, TRIAL_DAYS, PAYMENT_PROVIDER_CONFIGURED } from "@/lib/config.mjs";
-import { withCors, preflight } from "@/lib/cors.mjs";
+import { withCors, preflight, rejectDisallowedOrigin } from "@/lib/cors.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -117,11 +117,19 @@ const trialHandler = createRouteHandler({
 });
 
 // The exported handlers, so the marketing site's form can call this from another origin. The
-// allowlist comes from PUBLIC_ORIGINS; anything else gets no CORS headers and the browser refuses
-// the response, which is the intended behaviour for an endpoint that creates accounts.
+// allowlist comes from PUBLIC_ORIGINS.
+//
+// The rejection comes before the handler, not after it. Adding CORS headers to a stranger's response
+// would still have created their account: the door has to be closed, not just left without a
+// doormat. See rejectDisallowedOrigin.
 export async function POST(request: Request): Promise<Response> {
+  const origin = request.headers.get("origin");
+
+  const blocked = rejectDisallowedOrigin(origin, PUBLIC_ORIGINS);
+  if (blocked) return blocked;
+
   const response = await trialHandler(request);
-  return withCors(response, request.headers.get("origin"), PUBLIC_ORIGINS);
+  return withCors(response, origin, PUBLIC_ORIGINS);
 }
 
 export async function OPTIONS(request: Request): Promise<Response> {

@@ -61,3 +61,35 @@ export function preflight(requestOrigin, allowlist) {
     },
   });
 }
+
+/**
+ * Enforcement, not decoration.
+ *
+ * `withCors` only decorates a response. That leaves a real hole: a page on some other origin still
+ * gets its account created and merely cannot read the reply. Since this endpoint creates workspaces,
+ * that is an open door, which is exactly what the allowlist exists to prevent. Verified on the live
+ * deployment before this existed: a POST with `Origin: https://evil.example` answered 200 and made a
+ * workspace.
+ *
+ * A missing Origin is allowed, because it means the caller is not a browser: curl, a script, a
+ * server-side integration. The threat here is a stranger's web page, and a browser always sends an
+ * Origin. Requests that carry no Origin at all cannot be driven by somebody else's site.
+ */
+export function rejectDisallowedOrigin(requestOrigin, allowlist) {
+  if (!requestOrigin) return null;
+  if (allowedOrigin(requestOrigin, allowlist)) return null;
+
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      error: {
+        code: "origin_not_allowed",
+        message: "This page is not allowed to create accounts. Use the form on connect.raschident.com.",
+      },
+    }),
+    {
+      status: 403,
+      headers: { "content-type": "application/json", "cache-control": "no-store", vary: "origin" },
+    },
+  );
+}

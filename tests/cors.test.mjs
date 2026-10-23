@@ -1,56 +1,52 @@
 import "./setup.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allowedOrigin, withCors, preflight } from "../src/lib/cors.mjs";
+import { allowedOrigin, rejectDisallowedOrigin, preflight } from "../src/lib/cors.mjs";
 
-const ALLOW = ["https://connect.raschident.com"];
+const SITE = ["https://connect.raschident.com"];
 
-test("only an allowlisted origin is offered CORS", () => {
-  assert.equal(allowedOrigin("https://connect.raschident.com", ALLOW), "https://connect.raschident.com");
-  // The function echoes whatever origin was sent, so a trailing slash stays as sent. Browsers never
-  // send one, but the comparison still has to ignore it rather than reject the request.
-  assert.equal(allowedOrigin("https://connect.raschident.com/", ALLOW), "https://connect.raschident.com/");
-  assert.equal(allowedOrigin("https://CONNECT.raschident.com", ALLOW), "https://CONNECT.raschident.com", "case is not a way in");
-  assert.equal(allowedOrigin("https://evil.example", ALLOW), null);
-  assert.equal(allowedOrigin("https://connect.raschident.com.evil.example", ALLOW), null, "a prefix is not a match");
-  assert.equal(allowedOrigin(null, ALLOW), null, "no origin means no header");
+test("only origins on the allowlist are echoed back", () => {
+  assert.equal(allowedOrigin("https://connect.raschident.com", SITE), "https://connect.raschident.com");
+  assert.equal(allowedOrigin("https://connect.raschident.com/", SITE), "https://connect.raschident.com/", "a trailing slash still matches");
+  assert.equal(allowedOrigin("HTTPS://CONNECT.RASCHIDENT.COM", SITE), "HTTPS://CONNECT.RASCHIDENT.COM", "case is not a loophole");
+  assert.equal(allowedOrigin("https://evil.example", SITE), null);
+  assert.equal(allowedOrigin("https://connect.raschident.com.evil.example", SITE), null, "a prefix is not a match");
+  assert.equal(allowedOrigin("http://connect.raschident.com", SITE), null, "the scheme matters");
+  assert.equal(allowedOrigin("https://connect.raschident.com:8443", SITE), null, "so does the port");
+  assert.equal(allowedOrigin(null, SITE), null);
 });
 
-test("a wildcard is only used when configured explicitly", () => {
+test("a caller that is not a browser is allowed through", () => {
+  // curl, a script, a server-side integration: no Origin, so no third-party page is involved.
+  assert.equal(rejectDisallowedOrigin(null, SITE), null);
+  assert.equal(rejectDisallowedOrigin(undefined, SITE), null);
+  assert.equal(rejectDisallowedOrigin("", SITE), null);
+});
+
+test("the website is allowed, and a stranger's page is refused with 403", async () => {
+  assert.equal(rejectDisallowedOrigin("https://connect.raschident.com", SITE), null);
+
+  const blocked = rejectDisallowedOrigin("https://evil.example", SITE);
+  assert.ok(blocked, "a disallowed origin must be refused, not merely left without headers");
+  assert.equal(blocked.status, 403);
+
+  const body = await blocked.json();
+  assert.equal(body.ok, false);
+  assert.equal(body.error.code, "origin_not_allowed");
+  assert.match(body.error.message, /connect\.raschident\.com/, "the message should say where to go instead");
+});
+
+test("a wildcard is honoured only when it is configured", () => {
+  assert.equal(rejectDisallowedOrigin("https://anything.example", ["*"]), null);
   assert.equal(allowedOrigin("https://anything.example", ["*"]), "https://anything.example");
-  assert.equal(allowedOrigin("https://anything.example", []), null);
 });
 
-test("the CORS response keeps the body and status, and adds the headers", async () => {
-  const original = new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+test("a refused preflight is a 403, and an allowed one advertises no credentials", () => {
+  assert.equal(preflight("https://evil.example", SITE).status, 403);
 
-  const wrapped = withCors(original, "https://connect.raschident.com", ALLOW);
-  assert.equal(wrapped.status, 200);
-  assert.equal(wrapped.headers.get("access-control-allow-origin"), "https://connect.raschident.com");
-  assert.equal(wrapped.headers.get("vary"), "origin");
-  assert.equal(await wrapped.text(), JSON.stringify({ ok: true }), "the body survives the wrapper");
-});
-
-test("no credentials header is ever sent, because a public page must not use the session cookie", () => {
-  const wrapped = withCors(new Response("{}"), "https://connect.raschident.com", ALLOW);
-  assert.equal(wrapped.headers.get("access-control-allow-credentials"), null);
-});
-
-test("a non-allowlisted origin gets no headers at all", () => {
-  const original = new Response("{}", { status: 200 });
-  const wrapped = withCors(original, "https://evil.example", ALLOW);
-  assert.equal(wrapped.headers.get("access-control-allow-origin"), null);
-});
-
-test("the preflight answers 204 for an allowed origin and 403 for anyone else", () => {
-  const allowed = preflight("https://connect.raschident.com", ALLOW);
-  assert.equal(allowed.status, 204);
-  assert.equal(allowed.headers.get("access-control-allow-methods"), "POST, OPTIONS");
-  assert.equal(allowed.headers.get("access-control-allow-headers"), "content-type");
-
-  assert.equal(preflight("https://evil.example", ALLOW).status, 403);
-  assert.equal(preflight(null, ALLOW).status, 403);
+  const ok = preflight("https://connect.raschident.com", SITE);
+  assert.equal(ok.status, 204);
+  assert.equal(ok.headers.get("access-control-allow-origin"), "https://connect.raschident.com");
+  assert.equal(ok.headers.get("access-control-allow-credentials"), null, "the session cookie must never travel from a public page");
+  assert.equal(ok.headers.get("vary"), "origin");
 });

@@ -164,7 +164,7 @@ brew install flyctl
 fly auth signup
 cd ~/Documents/apps/universal-business-os
 fly apps create relco-business-os
-fly volumes create ubos_data --region dxb --size 1
+fly volumes create ubos_data --region sin --size 1
 fly secrets set SESSION_SECRET=<64 hex characters>
 fly secrets set PLATFORM_ADMIN_EMAILS=contact@raschident.com APP_URL=https://app.connect.raschident.com
 fly secrets set PUBLIC_ORIGINS=https://connect.raschident.com

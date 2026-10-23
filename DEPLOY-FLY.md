@@ -53,10 +53,10 @@ fly apps create relco-business-os
 ```
 
 ```
-fly volumes create ubos_data --region dxb --size 1
+fly volumes create ubos_data --region sin --size 1
 ```
 
-`dxb` is Dubai. It is the closest region to Pakistan and the Gulf; `sin` and `bom` are the
+`sin` is Dubai. It is the closest region to Pakistan and the Gulf; `sin` and `bom` are the
 alternatives if you would rather.
 
 If `relco-business-os` is taken, choose another name and change the `app` line in `fly.toml` to

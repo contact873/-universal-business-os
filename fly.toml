@@ -7,7 +7,7 @@
 # true, the answer is the asynchronous database migration, not another machine.
 
 app = "relco-business-os"
-primary_region = "dxb"
+primary_region = "sin"
 kill_signal = "SIGINT"
 kill_timeout = "5s"
 
@@ -23,7 +23,7 @@ kill_timeout = "5s"
   APP_URL = "https://app.connect.raschident.com"
 
 # The database lives here. Create it once with:
-#   fly volumes create ubos_data --region dxb --size 1
+#   fly volumes create ubos_data --region sin --size 1
 [mounts]
   source = "ubos_data"
   destination = "/data"
