@@ -29,6 +29,13 @@ export const DATA_DIR = env.DATA_DIR?.trim() || path.join(process.cwd(), "data")
 
 export const PLATFORM_ADMIN_EMAILS = list(env.PLATFORM_ADMIN_EMAILS);
 
+// Which public sites may call the trial endpoint from a browser. Not "*": the endpoint creates
+// accounts, and an allowlist is the difference between a funnel and an open door.
+export const PUBLIC_ORIGINS = (env.PUBLIC_ORIGINS ?? "https://connect.raschident.com")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 export const RESEND_API_KEY = env.RESEND_API_KEY?.trim() ?? "";
 export const EMAIL_FROM = env.EMAIL_FROM?.trim() || "Business OS <onboarding@resend.dev>";
 

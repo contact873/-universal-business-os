@@ -2,6 +2,8 @@ import { getDb } from "@/lib/db.mjs";
 import { createRouteHandler, createTrialAccount } from "@/lib/types";
 import { ensurePlans } from "@/lib/plans.mjs";
 import { sendEmail } from "@/lib/email.mjs";
+import { PUBLIC_ORIGINS } from "@/lib/config.mjs";
+import { withCors, preflight } from "@/lib/cors.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +20,7 @@ export const dynamic = "force-dynamic";
 //     a customer.
 //   * A weak password is rejected with the rule stated, because "invalid input" teaches nobody.
 
-export const POST = createRouteHandler({
+const trialHandler = createRouteHandler({
   auth: "none",
   rateLimit: { limit: 5, windowMs: 60 * 60 * 1000 },
   maxBytes: 8 * 1024,
@@ -91,3 +93,15 @@ export const POST = createRouteHandler({
     };
   },
 });
+
+// The exported handlers, so the marketing site's form can call this from another origin. The
+// allowlist comes from PUBLIC_ORIGINS; anything else gets no CORS headers and the browser refuses
+// the response, which is the intended behaviour for an endpoint that creates accounts.
+export async function POST(request: Request): Promise<Response> {
+  const response = await trialHandler(request);
+  return withCors(response, request.headers.get("origin"), PUBLIC_ORIGINS);
+}
+
+export async function OPTIONS(request: Request): Promise<Response> {
+  return preflight(request.headers.get("origin"), PUBLIC_ORIGINS);
+}
