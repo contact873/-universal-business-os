@@ -59,8 +59,25 @@ export default async function Signup({
                   {labelText}
                 </option>
               ))}
+              <option value="others">Others</option>
             </select>
           </div>
+
+          <div className="field" data-industry-other>
+            <label htmlFor="industryOther">If you chose Others, say what your business does</label>
+            <input
+              id="industryOther"
+              name="industryOther"
+              maxLength={60}
+              placeholder="Please specify"
+            />
+          </div>
+          <script
+            dangerouslySetInnerHTML={{
+              __html:
+                "(function(){var s=document.getElementById('industry');var w=document.querySelector('[data-industry-other]');if(!s||!w)return;var u=function(){w.style.display=s.value==='others'?'':'none'};s.addEventListener('change',u);u();})();",
+            }}
+          />
 
           <div className="form-row">
             <div className="field">

@@ -8,7 +8,7 @@ type Member = { email: string; name: string | null; role: string };
 
 // Industry choices, with whatever is already set added in front so opening the page cannot silently
 // change a value somebody chose.
-const INDUSTRIES = ["med-spa", "salon", "real-estate", "consulting", "home-services", "retail", "other"];
+const INDUSTRIES = ["med-spa", "salon", "real-estate", "consulting", "home-services", "retail", "others"];
 
 const TIMEZONE_CHOICES = [
   "Asia/Karachi",
@@ -117,6 +117,15 @@ export default async function Settings({
                     ))}
                   </select>
                 </div>
+                <div className="field" data-industry-other>
+                  <label htmlFor="w-industryOther">If you chose Others, say what the business does</label>
+                  <input
+                    id="w-industryOther"
+                    name="industryOther"
+                    maxLength={60}
+                    placeholder="Please specify"
+                  />
+                </div>
                 <div className="field">
                   <label htmlFor="w-timezone">Timezone</label>
                   <select id="w-timezone" name="timezone" defaultValue={org?.timezone ?? "UTC"}>
@@ -133,6 +142,12 @@ export default async function Settings({
                 every booking at the wrong hour.
               </p>
               <button type="submit">Save workspace</button>
+              <script
+                dangerouslySetInnerHTML={{
+                  __html:
+                    "(function(){var s=document.getElementById('w-industry');var w=document.querySelector('[data-industry-other]');if(!s||!w)return;var u=function(){w.style.display=s.value==='others'?'':'none'};s.addEventListener('change',u);u();})();",
+                }}
+              />
             </form>
           ) : null}
 

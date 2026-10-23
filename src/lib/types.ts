@@ -29,6 +29,7 @@ import {
 } from "@/lib/accounts.mjs";
 import { withinLimit as withinLimitJs, applyEvent as applyEventJs } from "@/lib/billing.mjs";
 import { planForDisplay as planForDisplayJs } from "@/lib/plans.mjs";
+import { resolveIndustry as resolveIndustryJs } from "@/lib/onboarding.mjs";
 import {
   createTrialAccount as createTrialAccountJs,
   createCardTrialAccount as createCardTrialAccountJs,
@@ -41,6 +42,7 @@ export type TrialInput = {
   password: string;
   company: string;
   industry?: string | null;
+  industryOther?: string | null;
   country?: string | null;
   name?: string | null;
 };
@@ -546,4 +548,11 @@ export function updateOrganization(
   changes: { name?: string | null; industry?: string | null; timezone?: string | null },
 ): { ok: boolean; reason?: string; changed?: boolean } {
   return updateOrganizationJs(db as never, orgId as never, changes as never) as never;
+}
+
+export function resolveIndustry(
+  industry: string | null,
+  industryOther: string | null,
+): { ok: boolean; reason?: string; industry?: string | null } {
+  return resolveIndustryJs(industry as never, industryOther as never) as never;
 }

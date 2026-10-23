@@ -10,6 +10,7 @@ import {
   pendingInvitationCount,
   revokeInvitation,
   updateOrganization,
+  resolveIndustry,
 } from "@/lib/types";
 import { SESSION_COOKIE } from "@/lib/config.mjs";
 import { LEAD_STAGES } from "@/lib/tenant.mjs";
@@ -69,6 +70,7 @@ export async function signUpAction(form: FormData) {
   const name = field(form, "name");
   const company = field(form, "company");
   const industry = field(form, "industry") || null;
+  const industryOther = field(form, "industryOther") || null;
 
   let result;
   try {
@@ -80,7 +82,7 @@ export async function signUpAction(form: FormData) {
     // it left a user row with no workspace behind it.
     result = await startSignupAccount(
       db(),
-      { email, password, company, industry, country: field(form, "country") || null, name },
+      { email, password, company, industry, industryOther, country: field(form, "country") || null, name },
       { sendEmail: (outgoing) => sendEmail(outgoing) },
     );
   } catch (error) {
@@ -94,9 +96,11 @@ export async function signUpAction(form: FormData) {
     const explain =
       result.reason === "email_taken"
         ? "That email already has an account. Sign in instead, or use a different address."
-        : result.reason === "bad_input" || result.reason === "bad_company"
-          ? (result.message ?? "Check the details and try again.")
-          : "That could not be created. Try again, or write to us.";
+        : result.reason === "industry_required"
+          ? "You chose Others for the industry, so say what your business does in the box beside it."
+          : result.reason === "bad_input" || result.reason === "bad_company"
+            ? (result.message ?? "Check the details and try again.")
+            : "That could not be created. Try again, or write to us.";
     redirect(`/signup?error=${message(explain)}`);
   }
 
@@ -576,9 +580,21 @@ export async function updateWorkspaceAction(form: FormData) {
     redirect(`/app/settings?error=${message("Only an owner or an admin can change the workspace.")}`);
   }
 
+  // The same rule as sign-up: choosing Others means saying what the business does.
+  const chosen = resolveIndustry(field(form, "industry") || null, field(form, "industryOther") || null);
+  if (!chosen.ok) {
+    redirect(
+      `/app/settings?error=${message(
+        chosen.reason === "industry_too_long"
+          ? "Keep the industry to 60 characters or fewer."
+          : "You chose Others, so please say what the business does in the box beside it.",
+      )}`,
+    );
+  }
+
   const result = updateOrganization(db(), session.orgId, {
     name: field(form, "name") || null,
-    industry: field(form, "industry") || null,
+    industry: chosen.industry ?? null,
     timezone: field(form, "timezone") || null,
   });
 

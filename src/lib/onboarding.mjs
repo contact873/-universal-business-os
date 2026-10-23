@@ -41,6 +41,29 @@ function recordSubscriber(db, { email, name, company, country, phone, userId, or
   }
 }
 
+
+/**
+ * Works out the industry when "Others" is one of the choices.
+ *
+ * The whole point of knowing somebody's industry is to know what their business actually does, so
+ * "others" on its own tells us nothing. Choosing it therefore requires the sentence, and the sentence
+ * becomes the stored value: a dental laboratory is more useful in the record than the word "others"
+ * appearing two hundred times.
+ */
+export function resolveIndustry(industry, industryOther = null) {
+  const picked = industry ? String(industry).trim().toLowerCase() : null;
+
+  if (picked === "others" || picked === "other") {
+    const custom = industryOther ? String(industryOther).trim().replace(/\s+/g, " ") : "";
+    if (custom.length < 2) return { ok: false, reason: "industry_required" };
+    if (custom.length > 60) return { ok: false, reason: "industry_too_long" };
+    return { ok: true, industry: custom };
+  }
+
+  if (picked && picked.length > 40) return { ok: false, reason: "industry_too_long" };
+  return { ok: true, industry: picked || null };
+}
+
 /**
  * The default sign-up: a free workspace, forever, no card.
  *
@@ -49,12 +72,16 @@ function recordSubscriber(db, { email, name, company, country, phone, userId, or
  */
 export async function createFreeAccount(
   db,
-  { email, password, company, industry = null, country = null, name = null, phone = null, marketingConsent = false },
+  { email, password, company, industry = null, industryOther = null, country = null, name = null, phone = null, marketingConsent = false },
   { sendEmail = null, now = Date.now() } = {},
 ) {
   if (!company || String(company).trim().length < 2) {
     return { ok: false, reason: "bad_company" };
   }
+
+  const chosen = resolveIndustry(industry, industryOther);
+  if (!chosen.ok) return { ok: false, reason: chosen.reason };
+  industry = chosen.industry;
 
   let userId;
   try {
@@ -117,12 +144,16 @@ export async function createFreeAccount(
 
 export async function createTrialAccount(
   db,
-  { email, password, company, industry = null, country = null, name = null, phone = null, marketingConsent = false },
+  { email, password, company, industry = null, industryOther = null, country = null, name = null, phone = null, marketingConsent = false },
   { sendEmail = null, plan = "starter", now = Date.now() } = {},
 ) {
   if (!company || String(company).trim().length < 2) {
     return { ok: false, reason: "bad_company" };
   }
+
+  const chosen = resolveIndustry(industry, industryOther);
+  if (!chosen.ok) return { ok: false, reason: chosen.reason };
+  industry = chosen.industry;
 
   let userId;
   try {
@@ -194,12 +225,16 @@ export async function createTrialAccount(
  */
 export async function createCardTrialAccount(
   db,
-  { email, password, company, industry = null, country = null, name = null, phone = null, marketingConsent = false },
+  { email, password, company, industry = null, industryOther = null, country = null, name = null, phone = null, marketingConsent = false },
   { sendEmail = null, plan = "professional", trialDays = 7, now = Date.now() } = {},
 ) {
   if (!company || String(company).trim().length < 2) {
     return { ok: false, reason: "bad_company" };
   }
+
+  const chosen = resolveIndustry(industry, industryOther);
+  if (!chosen.ok) return { ok: false, reason: chosen.reason };
+  industry = chosen.industry;
 
   let userId;
   try {

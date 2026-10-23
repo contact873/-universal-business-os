@@ -29,6 +29,9 @@ const trialHandler = createRouteHandler({
     password: { type: "string", required: true, min: 10, max: 200 },
     company: { type: "string", required: true, min: 2, max: 80 },
     industry: { type: "string", max: 40 },
+    // Only meaningful when the industry is "others", and then it is required: the point of asking
+    // is to learn what the business does, so "others" alone tells us nothing.
+    industryOther: { type: "string", max: 60 },
     country: { type: "string", max: 8 },
     name: { type: "string", max: 80 },
     phone: { type: "string", max: 40 },
@@ -49,6 +52,7 @@ const trialHandler = createRouteHandler({
         password: data.password,
         company: data.company,
         industry: data.industry ?? null,
+        industryOther: data.industryOther ?? null,
         country: data.country ?? null,
         name: data.name ?? null,
         phone: data.phone ?? null,
