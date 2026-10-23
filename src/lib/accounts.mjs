@@ -182,6 +182,42 @@ export function membershipsFor(db, userId) {
     .all(userId);
 }
 
+/**
+ * The free plan: active, no period end, nothing to pay, no card.
+ *
+ * Status is 'active' with a null period_end, which the paying rule treats as valid indefinitely.
+ * That is intentional: a free plan that "expires" is a trial wearing a costume, and it is the kind
+ * of thing that produces angry email.
+ */
+export function startFreePlan(db, orgId, planId = "free", { now = Date.now() } = {}) {
+  const plan = db.prepare("select * from plans where id = ?").get(planId);
+  if (!plan) {
+    const error = new Error(`Unknown plan "${planId}".`);
+    error.status = 400;
+    throw error;
+  }
+
+  db.prepare(
+    `insert into subscriptions (id, organization_id, provider, provider_id, status, plan_id, trial_end, period_end, created_at)
+     values (?, ?, null, null, 'active', ?, null, null, ?)`,
+  ).run(id("sub"), orgId, planId, new Date(now).toISOString());
+
+  const limits = plan.limits_json ? JSON.parse(plan.limits_json) : {};
+  for (const [feature, limit] of Object.entries(limits)) {
+    grant(db, orgId, feature, typeof limit === "number" ? limit : null);
+  }
+
+  writeAudit(db, {
+    orgId,
+    actorUserId: null,
+    action: "billing.free_plan_started",
+    entity: "subscription",
+    meta: { planId },
+  });
+
+  return { ok: true, planId, status: "active" };
+}
+
 // Billing is not wired yet, but the entitlement check is, so that paid features are gated on the
 // server from the first day rather than retrofitted around a UI flag.
 export function startTrial(db, orgId, planId, { days = 14, now = Date.now() } = {}) {

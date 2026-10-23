@@ -9,8 +9,37 @@
 //
 // The numeric values below are proposals, not commitments. They live in one place so that changing
 // a price is one edit and a deploy, rather than a hunt through templates.
+//
+// HOW THE FREE PLAN IS LIMITED, and why this way:
+//
+//   Not by time. A free plan that expires after fourteen days is a trial wearing a costume, and it
+//   produces exactly the thing a business cannot afford: a customer who signed up, never got round
+//   to using it, and now associates the brand with a deadline. The free plan never expires.
+//
+//   By growth. Contacts and seats are standing counts. Reaching one refuses new records and nothing
+//   else: existing data stays readable, searchable and editable, and nothing is ever deleted to
+//   enforce a limit. A business hits the ceiling in a busy month, understands what the next tier
+//   buys, and upgrades from the billing page with its data already in place.
+//
+//   By allowance, for the things that cost money to run. Assistant minutes and SMS reset on the
+//   first of the month, so one busy week cannot burn an account permanently. When an allowance runs
+//   out the features route to a person rather than failing in front of a customer.
 
 export const PLAN_DEFINITIONS = [
+  {
+    id: "free",
+    name: "Free",
+    priceMinor: 0,
+    setupMinor: 0,
+    liveInDays: 0,
+    currency: "USD",
+    exponent: 2,
+    interval: "month",
+    // Free forever, and deliberately limited so it is useful rather than a demo. A business can
+    // run real enquiries through it, hit the ceiling in a busy month, and know exactly what the
+    // next tier buys. It never expires, so it never needs a card and can never produce a chargeback.
+    limits: { contacts: 100, seats: 1, "assistant-minutes": 0, "sms-messages": 100 },
+  },
   {
     id: "starter",
     name: "Starter",

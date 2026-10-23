@@ -9,7 +9,11 @@ test("every plan quotes a monthly price, a setup fee and a live-in time", () => 
     assert.equal(Number.isInteger(plan.priceMinor), true, `${plan.id} needs an integer monthly price`);
     assert.equal(Number.isInteger(plan.setupMinor), true, `${plan.id} needs a setup fee, even if zero`);
     assert.equal(Number.isInteger(plan.liveInDays), true, `${plan.id} needs a live-in time in days`);
-    assert.ok(plan.liveInDays > 0 && plan.liveInDays <= 30, `${plan.id} live-in time looks implausible`);
+
+    // A free plan is usable immediately, so zero days is correct for it. A paid plan that claims to
+    // be live in zero days is a promise nobody can keep.
+    if (plan.priceMinor === 0) assert.equal(plan.liveInDays, 0, `${plan.id} is free, so it needs no onboarding time`);
+    else assert.ok(plan.liveInDays > 0 && plan.liveInDays <= 30, `${plan.id} live-in time looks implausible`);
   }
 });
 
@@ -45,10 +49,13 @@ test("the catalogue is written to the database with its terms intact", () => {
 
   const rows = planForDisplay(db);
   assert.equal(rows.length, PLAN_DEFINITIONS.length);
-  assert.equal(rows[0].id, "starter", "sorted cheapest first");
-  assert.equal(typeof rows[0].monthly, "number");
-  assert.equal(typeof rows[0].setup, "number");
-  assert.ok(rows[0].liveInDays >= 1);
+  assert.equal(rows[0].id, "free", "sorted cheapest first, and free is the cheapest");
+  assert.equal(rows[0].monthly, 0);
+  assert.equal(rows[0].setup, 0);
+  assert.equal(rows[1].id, "starter");
+  assert.equal(typeof rows[1].monthly, "number");
+  assert.equal(typeof rows[1].setup, "number");
+  assert.ok(rows[1].liveInDays >= 1);
   assert.ok(Object.keys(rows[0].limits).length > 0, "limits must survive the JSON round trip");
 
   closeDb();

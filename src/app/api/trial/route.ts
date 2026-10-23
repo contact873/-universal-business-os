@@ -1,8 +1,8 @@
 import { getDb } from "@/lib/db.mjs";
-import { createRouteHandler, createTrialAccount, createCardTrialAccount } from "@/lib/types";
+import { createRouteHandler, createTrialAccount, createCardTrialAccount, createFreeAccount } from "@/lib/types";
 import { ensurePlans } from "@/lib/plans.mjs";
 import { sendEmail } from "@/lib/email.mjs";
-import { PUBLIC_ORIGINS, TRIAL_REQUIRES_CARD, TRIAL_DAYS, PAYMENT_PROVIDER_CONFIGURED } from "@/lib/config.mjs";
+import { PUBLIC_ORIGINS, SIGNUP_MODE, TRIAL_DAYS, PAYMENT_PROVIDER_CONFIGURED } from "@/lib/config.mjs";
 import { withCors, preflight } from "@/lib/cors.mjs";
 
 export const runtime = "nodejs";
@@ -31,6 +31,10 @@ const trialHandler = createRouteHandler({
     industry: { type: "string", max: 40 },
     country: { type: "string", max: 8 },
     name: { type: "string", max: 80 },
+    phone: { type: "string", max: 40 },
+    // Opt in, never assumed. An unchecked box sends false, and false means the address is stored
+    // but not mailable.
+    marketingConsent: { type: "boolean" },
   },
   handler: async ({ data }: { data: Record<string, any> }) => {
     const db = getDb();
@@ -47,16 +51,22 @@ const trialHandler = createRouteHandler({
         industry: data.industry ?? null,
         country: data.country ?? null,
         name: data.name ?? null,
+        phone: data.phone ?? null,
+        marketingConsent: data.marketingConsent === true,
       };
 
       const sender = (message: { to: string; subject: string; html: string }) => sendEmail(message);
 
-      // Card first by default: the workspace exists, but nothing is granted until a card is
-      // attached and the provider confirms it. With TRIAL_REQUIRES_CARD=false this becomes an open
-      // trial, which is what you want while a payment account is still being approved.
-      result = TRIAL_REQUIRES_CARD
-        ? await createCardTrialAccount(db, input, { sendEmail: sender, trialDays: TRIAL_DAYS })
-        : await createTrialAccount(db, input, { sendEmail: sender });
+      // What a new sign-up gets, from SIGNUP_MODE:
+      //   free   a workspace that never expires, with hard limits, and no card
+      //   card   register, add a card, seven days, then charge
+      //   trial  an open trial with no card
+      result =
+        SIGNUP_MODE === "free"
+          ? await createFreeAccount(db, input, { sendEmail: sender })
+          : SIGNUP_MODE === "card"
+            ? await createCardTrialAccount(db, input, { sendEmail: sender, trialDays: TRIAL_DAYS })
+            : await createTrialAccount(db, input, { sendEmail: sender });
     } catch (error) {
       console.error("[trial] failed:", error);
       return {
@@ -90,6 +100,8 @@ const trialHandler = createRouteHandler({
       data: {
         started: true,
         workspace: result.slug,
+        // Which plan the workspace is on: "free" means it is usable now and never expires.
+        plan: result.plan ?? SIGNUP_MODE,
         // True when the workspace exists but no access has been granted yet, because no card is on
         // file. The website must say that rather than sending the visitor to a dashboard they
         // cannot use.

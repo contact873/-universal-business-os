@@ -21,7 +21,60 @@ Pakistani bank".
 
 ---
 
-## Part 1: bank transfer, which needs no approval
+## Part 3: the free plan, and the subscriber list
+
+The funnel is free first, not card first. `SIGNUP_MODE=free` is the default, and it is the setting
+that should stay on until a merchant account exists.
+
+### How the free plan is limited, and why that way
+
+**Not by time.** A free plan that expires after fourteen days is a trial wearing a costume. It
+produces the one thing a business cannot afford: someone who signed up, never got round to using it,
+and now associates the brand with a deadline. The free plan never expires, and its subscription row
+has no `period_end` at all.
+
+**By growth.** Contacts and seats are standing counts, checked on the server. Reaching the ceiling
+refuses new records and nothing else: existing data stays readable, searchable and editable, and
+nothing is ever deleted to enforce a limit.
+
+**By allowance** for the things that cost money to run. Assistant minutes and SMS use `usage_events`
+and reset on the first of the month, UTC. One busy week cannot burn an account permanently. When an
+allowance runs out, features route to a person rather than failing in front of a customer.
+
+Free is 100 contacts, one person, 100 SMS a month, and no assistant minutes. The assistant is what
+Professional sells.
+
+### The subscriber registry
+
+Every sign-up is written to `subscribers`, whether or not the workspace survives. This is the
+operator's list, and the reason the free plan is worth running: a workspace that never converts is
+still a relationship.
+
+- **Consent is stored, not assumed.** `marketing_consent`, `consent_at` and `consent_source` are
+  recorded at the moment the box is ticked. An unticked box stores the address and marks it not
+  mailable, which is the only honest reading of not answering the question.
+- **Unsubscribing is final.** It clears consent, records the moment, and the guard sits at the queue
+  in `offerItem`, not at the send, because a queued offer becomes a sent offer. A broadcast cannot
+  reach someone who opted out.
+- **A later sign-up cannot erase a filled field.** A form that omits the phone number will not blank
+  the one already held.
+- **Nothing is duplicated.** Matching is on the normalised address, so `Dana@Clinic.test` and
+  ` dana@clinic.TEST ` are one person with one history.
+
+### What you do with it
+
+1. Open `https://app.connect.raschident.com/admin/subscribers`
+2. Filter by status, plan, or "only those who consented"
+3. Download CSV, which quotes commas and doubled quotes so a spreadsheet opens it properly
+4. Record an offer of a future item against a subscriber, then its outcome, so the same person is
+   not pitched the same thing twice in a month
+
+`subscriberStats` gives total, free, paying, mailable and the conversion rate, plus acceptance per
+offered item. That is the number that says whether the free plan is doing its job.
+
+---
+
+## Part 4: bank transfer, which needs no approval
 
 ### What to fill in
 
@@ -53,7 +106,7 @@ Marking the same invoice paid twice is refused, so a duplicate confirmation cann
 
 ---
 
-## Part 2: cards and wallets, when the merchant account is approved
+## Part 5: cards and wallets, when the merchant account is approved
 
 ### Apply to one of these
 
@@ -90,7 +143,7 @@ building `applyEvent` and `markInvoicePaid` first.
 
 ---
 
-## Part 3: completing the website, in order
+## Part 6: completing the website, in order
 
 ### Step 1, upload four files
 
@@ -118,7 +171,7 @@ fly secrets set PUBLIC_ORIGINS=https://connect.raschident.com
 fly deploy
 ```
 
-Then the bank details from Part 1, and `fly secrets set RESEND_API_KEY=... EMAIL_FROM="..."` so the
+Then the bank details from Part 4, and `fly secrets set RESEND_API_KEY=... EMAIL_FROM="..."` so the
 welcome email leaves the building.
 
 ### Step 3, the domain

@@ -395,39 +395,106 @@ export function trialState(db, orgId, { now = Date.now() } = {}) {
  * Plan limits, checked on the server. The interface hiding a button is not enforcement: anybody
  * with a session can post to the action directly.
  *
+ * Two kinds of limit, and the distinction matters to a customer:
+ *
+ *   standing   contacts and seats. A count of what exists. Hitting the ceiling stops new records
+ *              and nothing else; existing records stay readable, searchable and editable, and the
+ *              ceiling does not move on its own.
+ *   metered    assistant minutes and SMS. A monthly allowance that resets on the first of the
+ *              month, so one busy week cannot burn an account permanently.
+ *
+ * Nothing here deletes a customer's data to enforce a limit, ever. Reaching a cap is a reason to
+ * upgrade, not a reason to lose work.
+ *
  * The subscription state is consulted here as well as the entitlement row, because entitlement
  * rows survive a lapse. Without this check the two halves of the system would disagree: hasFeature
  * would correctly say no while withinLimit said yes, which is exactly the kind of gap that ends up
  * as a paying feature used by a non-paying workspace.
  */
-export function withinLimit(db, orgId, feature, { current = null } = {}) {
+export function withinLimit(db, orgId, feature, { current = null, now = Date.now() } = {}) {
   const row = db
     .prepare("select limit_value from entitlements where organization_id = ? and feature = ?")
     .get(orgId, feature);
 
   if (!row) return { allowed: false, limit: 0, current, reason: "not_entitled" };
 
-  if (!isPaying(currentSubscription(db, orgId))) {
+  if (!isPaying(currentSubscription(db, orgId), now)) {
     return { allowed: false, limit: row.limit_value, current, reason: "not_paying" };
   }
 
   if (row.limit_value === null) return { allowed: true, limit: null, current, reason: "unlimited" };
 
-  const count = current ?? countFor(db, orgId, feature);
+  const count = current ?? countFor(db, orgId, feature, now);
   return {
     allowed: count < row.limit_value,
     limit: row.limit_value,
     current: count,
     reason: count < row.limit_value ? "within_limit" : "limit_reached",
+    // Metered features reset; standing counts do not. The interface needs to know which it is
+    // showing, or it will offer a reset that never comes.
+    resets: METERED_FEATURES.has(feature),
   };
 }
 
-function countFor(db, orgId, feature) {
+/** Metered against a monthly allowance, resetting on the first of the month, UTC. */
+const METERED_FEATURES = new Set(["assistant-minutes", "sms-messages"]);
+
+/** The start of the allowance window that `now` falls in. */
+export function periodStart(now = Date.now()) {
+  const date = new Date(now);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString();
+}
+
+/**
+ * Records consumption so the allowance means something. Called by whatever does the work: a
+ * completed assistant call, a sent SMS.
+ */
+export function recordUsage(db, orgId, eventType, quantity = 1, { now = Date.now() } = {}) {
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    const error = new Error("Usage quantity must be a positive whole number.");
+    error.status = 400;
+    throw error;
+  }
+
+  db.prepare(
+    "insert into usage_events (id, organization_id, event_type, quantity, created_at) values (?, ?, ?, ?, ?)",
+  ).run(newId("use"), orgId, eventType, quantity, new Date(now).toISOString());
+
+  return { ok: true, eventType, quantity, at: new Date(now).toISOString() };
+}
+
+/** What has been consumed in the current allowance window. */
+export function usageThisPeriod(db, orgId, { now = Date.now() } = {}) {
+  const since = periodStart(now);
+  const rows = db
+    .prepare(
+      `select event_type, sum(quantity) as used
+         from usage_events
+        where organization_id = ? and created_at >= ?
+        group by event_type`,
+    )
+    .all(orgId, since);
+
+  return {
+    since,
+    used: Object.fromEntries(rows.map((row) => [row.event_type, row.used])),
+  };
+}
+
+function countFor(db, orgId, feature, now = Date.now()) {
   if (feature === "contacts") {
     return db.prepare("select count(*) as n from contacts where organization_id = ?").get(orgId).n;
   }
   if (feature === "seats") {
     return db.prepare("select count(*) as n from memberships where organization_id = ?").get(orgId).n;
+  }
+  if (METERED_FEATURES.has(feature)) {
+    return db
+      .prepare(
+        `select coalesce(sum(quantity), 0) as n from usage_events
+          where organization_id = ? and event_type = ? and created_at >= ?`,
+      )
+      .get(orgId, feature, periodStart(now)).n;
   }
   return 0;
 }

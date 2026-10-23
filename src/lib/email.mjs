@@ -71,6 +71,20 @@ ${linkPlain}
   };
 }
 
+/** The free plan welcome. It states the ceiling plainly, because that is what makes it fair. */
+export function freePlanEmail({ company, slug }) {
+  return {
+    subject: `Your free workspace is ready: ${company}`,
+    html: `<p>Your workspace <strong>${escapeHtml(company)}</strong> is ready, on the free plan. It does
+not expire and there is no card on file, so there is nothing that can be charged.</p>
+<p>Your workspace address is <strong>${escapeHtml(slug)}</strong>.</p>
+<p>The free plan includes up to 100 contacts, one person, and 100 SMS a month. When you outgrow it,
+the Professional plan adds contacts, team members and the assistant; you can upgrade from the
+billing page whenever you choose.</p>
+<p>Nothing you put in it is visible to any other business on the platform.</p>`,
+  };
+}
+
 /** Sent the moment a trial workspace exists. It must not promise anything the product cannot do. */
 export function welcomeEmail({ company, slug }) {
   const workspace = escapeHtml(company);

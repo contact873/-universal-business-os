@@ -22,7 +22,11 @@ import { createRouteHandler as createRouteHandlerJs } from "@/lib/guard.mjs";
 import { listAudit as listAuditJs } from "@/lib/audit.mjs";
 import { withinLimit as withinLimitJs, applyEvent as applyEventJs } from "@/lib/billing.mjs";
 import { planForDisplay as planForDisplayJs } from "@/lib/plans.mjs";
-import { createTrialAccount as createTrialAccountJs, createCardTrialAccount as createCardTrialAccountJs } from "@/lib/onboarding.mjs";
+import {
+  createTrialAccount as createTrialAccountJs,
+  createCardTrialAccount as createCardTrialAccountJs,
+  createFreeAccount as createFreeAccountJs,
+} from "@/lib/onboarding.mjs";
 
 export type TrialInput = {
   email: string;
@@ -40,6 +44,7 @@ export type TrialResult = {
   userId?: string;
   orgId?: string;
   slug?: string;
+  plan?: string;
   needsCard?: boolean;
   subscriptionId?: string;
   trialDays?: number;
@@ -72,6 +77,18 @@ export function createCardTrialAccount(
   },
 ): Promise<TrialResult> {
   return createCardTrialAccountJs(db as never, input as never, options as never) as Promise<TrialResult>;
+}
+
+export function createFreeAccount(
+  db: unknown,
+  input: TrialInput,
+  options?: {
+    sendEmail?:
+      | ((message: { to: string; subject: string; html: string }) => SendResult | Promise<SendResult>)
+      | null;
+  },
+): Promise<TrialResult> {
+  return createFreeAccountJs(db as never, input as never, options as never) as Promise<TrialResult>;
 }
 
 export type PlanDisplay = {

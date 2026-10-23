@@ -48,6 +48,14 @@ export const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 export const TRIAL_REQUIRES_CARD = String(env.TRIAL_REQUIRES_CARD ?? "true").toLowerCase() !== "false";
 export const TRIAL_DAYS = Number(env.TRIAL_DAYS ?? 7) || 7;
 export const PAYMENT_PROVIDER_CONFIGURED = Boolean(env.PAYMENT_PROVIDER_KEY?.trim());
+
+// What a new sign-up gets.
+//   free   a free workspace that never expires, with hard limits. No card, no chargeback risk.
+//   card   register, add a card, seven days, then charge.
+//   trial  an open trial with no card, for when neither of the above is wanted.
+export const SIGNUP_MODE = ["free", "card", "trial"].includes(String(env.SIGNUP_MODE ?? "").toLowerCase())
+  ? String(env.SIGNUP_MODE).toLowerCase()
+  : "free";
 export const RATE_LIMITS = {
   login: { limit: 10, windowMs: 60_000 },
   signup: { limit: 5, windowMs: 60_000 },

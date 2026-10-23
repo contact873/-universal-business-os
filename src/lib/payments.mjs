@@ -15,6 +15,7 @@
 import { id as newId, nowIso } from "./identities.mjs";
 import { syncEntitlements } from "./billing.mjs";
 import { writeAudit } from "./audit.mjs";
+import { setSubscriberStatus } from "./subscribers.mjs";
 
 export const PROVIDERS = ["bank_transfer", "safepay", "payfast", "stripe"];
 
@@ -135,6 +136,14 @@ export function markInvoicePaid(db, invoiceId, { reference = null, actorUserId =
       status: "active",
       periodEnd,
     });
+
+    // The registry follows the product, so the list can be filtered to paying customers without a
+    // join that has to guess which plan a workspace is really on.
+    try {
+      setSubscriberStatus(db, { organizationId: invoice.organization_id, status: "paying", planId: invoice.plan_id }, { now });
+    } catch (error) {
+      console.error("[subscriber] could not be moved to paying:", error);
+    }
 
     writeAudit(db, {
       orgId: invoice.organization_id,
