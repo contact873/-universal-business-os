@@ -107,7 +107,9 @@ const trialHandler = createRouteHandler({
         // cannot use.
         needsCard: Boolean(result.needsCard),
         providerConfigured: PAYMENT_PROVIDER_CONFIGURED,
-        trialDays: result.trialDays ?? TRIAL_DAYS,
+        // Null on the free plan. It is not a trial, and reporting a trial length for it would be
+        // the first thing a future client misreads.
+        trialDays: result.plan === "free" ? null : (result.trialDays ?? TRIAL_DAYS),
         emailed: Boolean(result.delivery?.ok),
       },
     };
