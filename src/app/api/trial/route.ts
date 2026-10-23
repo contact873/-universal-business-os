@@ -88,7 +88,11 @@ const trialHandler = createRouteHandler({
           message:
             result.reason === "bad_company"
               ? "A business name is required."
-              : result.message ?? "Check the details and try again.",
+              : result.reason === "industry_required"
+                ? "You chose Others for the industry, so please say what your business does."
+                : result.reason === "industry_too_long"
+                  ? "Keep the industry to 60 characters or fewer."
+                  : (result.message ?? "Check the details and try again."),
         },
       };
     }
