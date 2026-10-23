@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db.mjs";
-import { createRouteHandler, createTrialAccount, createCardTrialAccount, createFreeAccount } from "@/lib/types";
+import { createRouteHandler, startSignupAccount } from "@/lib/types";
 import { ensurePlans } from "@/lib/plans.mjs";
 import { sendEmail } from "@/lib/email.mjs";
 import { PUBLIC_ORIGINS, SIGNUP_MODE, TRIAL_DAYS, PAYMENT_PROVIDER_CONFIGURED } from "@/lib/config.mjs";
@@ -57,16 +57,9 @@ const trialHandler = createRouteHandler({
 
       const sender = (message: { to: string; subject: string; html: string }) => sendEmail(message);
 
-      // What a new sign-up gets, from SIGNUP_MODE:
-      //   free   a workspace that never expires, with hard limits, and no card
-      //   card   register, add a card, seven days, then charge
-      //   trial  an open trial with no card
-      result =
-        SIGNUP_MODE === "free"
-          ? await createFreeAccount(db, input, { sendEmail: sender })
-          : SIGNUP_MODE === "card"
-            ? await createCardTrialAccount(db, input, { sendEmail: sender, trialDays: TRIAL_DAYS })
-            : await createTrialAccount(db, input, { sendEmail: sender });
+      // What a new sign-up gets is decided in one place, so this endpoint and the application's own
+      // sign-up page cannot drift apart again.
+      result = await startSignupAccount(db, input, { sendEmail: sender });
     } catch (error) {
       console.error("[trial] failed:", error);
       return {

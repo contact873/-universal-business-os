@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { openTestDb, closeDb } from "../src/lib/db.mjs";
 import { seedPlans } from "./fixtures.mjs";
 import { entitlementFor, membershipsFor, startFreePlan } from "../src/lib/accounts.mjs";
-import { createFreeAccount } from "../src/lib/onboarding.mjs";
+import { createFreeAccount, startSignupAccount } from "../src/lib/onboarding.mjs";
 import { isPaying, withinLimit, syncEntitlements } from "../src/lib/billing.mjs";
 import { PLAN_DEFINITIONS } from "../src/lib/plans.mjs";
 
@@ -113,6 +113,30 @@ test("a duplicated free sign-up does not create a second workspace", async () =>
   assert.equal(second.ok, false);
   assert.equal(second.reason, "email_taken");
   assert.equal(db.prepare("select count(*) as n from organizations").get().n, 1);
+
+  closeDb();
+});
+
+test("both doors to sign-up give the same workspace", async () => {
+  const db = seedPlans(openTestDb());
+  const person = (email, company) => ({ email, password: "a-long-enough-password", company });
+
+  // The marketing site's form and the application's own /signup page. They drifted once: the page
+  // hardcoded the paid Starter plan and never wrote to the subscriber registry, so where somebody
+  // signed up decided both their plan and whether they appeared in the customer list.
+  const viaSite = await startSignupAccount(db, person("site@example.test", "Site Clinic"), { sendEmail: null, mode: "free" });
+  const viaApp = await startSignupAccount(db, person("app@example.test", "App Clinic"), { sendEmail: null, mode: "free" });
+
+  for (const result of [viaSite, viaApp]) {
+    assert.equal(result.ok, true);
+    assert.equal(result.plan, "free", "a sign-up must land on the free plan, not a paid tier");
+    assert.ok(result.subscriberId, "every sign-up must appear in the subscriber registry");
+    assert.equal(result.needsCard, false);
+  }
+
+  const plans = db.prepare("select distinct plan_id from subscriptions").all().map((row) => row.plan_id);
+  assert.deepEqual(plans, ["free"], `no sign-up may quietly create a paid plan, found ${plans.join(", ")}`);
+  assert.equal(db.prepare("select count(*) as n from subscribers").get().n, 2);
 
   closeDb();
 });

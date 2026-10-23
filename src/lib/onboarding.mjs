@@ -11,6 +11,7 @@ import { createUser, createOrganization, startFreePlan } from "./accounts.mjs";
 import { beginCardTrial } from "./billing.mjs";
 import { welcomeEmail, cardRequiredEmail, freePlanEmail } from "./email.mjs";
 import { upsertSubscriber } from "./subscribers.mjs";
+import { SIGNUP_MODE, TRIAL_DAYS } from "./config.mjs";
 
 /**
  * Adds the sign-up to the registry that outlives the workspace.
@@ -258,4 +259,22 @@ export async function createCardTrialAccount(
     delivery,
     createdAt: new Date(now).toISOString(),
   };
+}
+
+/**
+ * The single entry point for a new sign-up, whoever is asking.
+ *
+ * There are two doors: the form on the marketing site, which arrives over the API, and the
+ * application's own /signup page. They drifted apart once already: the page hardcoded the paid
+ * Starter plan and never touched the subscriber registry, so where you signed up decided both your
+ * plan and whether you appeared in the customer list. Both now come through here.
+ */
+export async function startSignupAccount(db, input, { sendEmail = null, mode = SIGNUP_MODE, now = Date.now() } = {}) {
+  if (mode === "card") {
+    return createCardTrialAccount(db, input, { sendEmail, trialDays: TRIAL_DAYS, now });
+  }
+  if (mode === "trial") {
+    return createTrialAccount(db, input, { sendEmail, now });
+  }
+  return createFreeAccount(db, input, { sendEmail, now });
 }

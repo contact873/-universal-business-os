@@ -26,6 +26,7 @@ import {
   createTrialAccount as createTrialAccountJs,
   createCardTrialAccount as createCardTrialAccountJs,
   createFreeAccount as createFreeAccountJs,
+  startSignupAccount as startSignupAccountJs,
 } from "@/lib/onboarding.mjs";
 
 export type TrialInput = {
@@ -77,6 +78,19 @@ export function createCardTrialAccount(
   },
 ): Promise<TrialResult> {
   return createCardTrialAccountJs(db as never, input as never, options as never) as Promise<TrialResult>;
+}
+
+export function startSignupAccount(
+  db: unknown,
+  input: TrialInput,
+  options?: {
+    sendEmail?:
+      | ((message: { to: string; subject: string; html: string }) => SendResult | Promise<SendResult>)
+      | null;
+    mode?: string;
+  },
+): Promise<TrialResult> {
+  return startSignupAccountJs(db as never, input as never, options as never) as Promise<TrialResult>;
 }
 
 export function createFreeAccount(

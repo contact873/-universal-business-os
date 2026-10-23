@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db.mjs";
+import { startSignupAccount } from "@/lib/types";
 import { SESSION_COOKIE } from "@/lib/config.mjs";
 import { LEAD_STAGES } from "@/lib/tenant.mjs";
 import { assertCan } from "@/lib/roles.mjs";
@@ -70,16 +71,22 @@ export async function signUpAction(form: FormData) {
   }
 
   try {
-    const { orgId } = createOrganization(db(), {
-      name: company,
-      industry,
-      ownerUserId: userId,
-      plan: "starter",
-      defaultCountry: field(form, "country") || null,
-    });
-    const { token, expiresAt } = createSession(db(), { userId, orgId });
+    // Goes through the same path as the marketing site's form, so the plan and the subscriber row
+    // are identical either way. This used to hardcode the paid Starter plan and skip the registry.
+    const result = await startSignupAccount(
+      db(),
+      { email, password, company, industry, country: field(form, "country") || null, name },
+      { sendEmail: (outgoing) => sendEmail(outgoing) },
+    );
+
+    if (!result.ok) {
+      redirect(`/signup?error=${message("That could not be created. Try another email address.")}`);
+    }
+
+    const { token, expiresAt } = createSession(db(), { userId, orgId: result.orgId as string });
     await setSessionCookie(token, expiresAt);
   } catch (error) {
+    if (typeof error === "object" && error !== null && "digest" in error) throw error;
     redirect(`/signup?error=${message((error as Error).message)}`);
   }
 
