@@ -29,6 +29,12 @@ import {
 } from "@/lib/accounts.mjs";
 import { withinLimit as withinLimitJs, applyEvent as applyEventJs } from "@/lib/billing.mjs";
 import { planForDisplay as planForDisplayJs } from "@/lib/plans.mjs";
+import {
+  issueInvoice as issueInvoiceJs,
+  invoicesFor as invoicesForJs,
+  outstandingInvoiceFor as outstandingInvoiceForJs,
+  bankDetails as bankDetailsJs,
+} from "@/lib/payments.mjs";
 import { resolveIndustry as resolveIndustryJs } from "@/lib/onboarding.mjs";
 import {
   createTrialAccount as createTrialAccountJs,
@@ -555,4 +561,45 @@ export function resolveIndustry(
   industryOther: string | null,
 ): { ok: boolean; reason?: string; industry?: string | null } {
   return resolveIndustryJs(industry as never, industryOther as never) as never;
+}
+
+export type InvoiceRow = {
+  id: string;
+  plan_id: string;
+  amount_minor: number;
+  currency: string;
+  status: string;
+  reference: string | null;
+  due_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+};
+
+export function issueInvoice(
+  db: unknown,
+  orgId: string,
+  planId: string,
+): { invoiceId: string; amountMinor: number; currency: string; dueAt: string } {
+  return issueInvoiceJs(db as never, orgId as never, planId as never, {} as never) as never;
+}
+
+export function invoicesFor(db: unknown, orgId: string): InvoiceRow[] {
+  return invoicesForJs(db as never, orgId as never, {} as never) as InvoiceRow[];
+}
+
+export function outstandingInvoiceFor(db: unknown, orgId: string): InvoiceRow | null {
+  return outstandingInvoiceForJs(db as never, orgId as never) as InvoiceRow | null;
+}
+
+export type BankDetails = {
+  bankName: string | null;
+  accountTitle: string | null;
+  accountNumber: string | null;
+  iban: string | null;
+  branch: string | null;
+  configured: boolean;
+};
+
+export function bankDetails(): BankDetails {
+  return bankDetailsJs() as BankDetails;
 }

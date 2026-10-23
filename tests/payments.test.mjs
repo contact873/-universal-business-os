@@ -4,7 +4,15 @@ import assert from "node:assert/strict";
 import { openTestDb, closeDb } from "../src/lib/db.mjs";
 import { seedPlans } from "./fixtures.mjs";
 import { createUser, createOrganization, entitlementFor } from "../src/lib/accounts.mjs";
-import { issueInvoice, markInvoicePaid, invoicesFor, providerStatus, bankDetails, paymentReadiness } from "../src/lib/payments.mjs";
+import {
+  issueInvoice,
+  markInvoicePaid,
+  invoicesFor,
+  outstandingInvoiceFor,
+  providerStatus,
+  bankDetails,
+  paymentReadiness,
+} from "../src/lib/payments.mjs";
 import { isPaying } from "../src/lib/billing.mjs";
 
 const DAY = 86_400_000;
@@ -124,6 +132,47 @@ test("a provider is reported unconfigured with the exact variables missing", () 
   const readiness = paymentReadiness({});
   assert.equal(readiness.bankTransfer, false);
   assert.match(readiness.note, /BANK_NAME/);
+
+  closeDb();
+});
+
+test("an unpaid invoice is findable, and stops being unpaid when it is settled", () => {
+  const { db, orgId } = workspace();
+
+  assert.equal(outstandingInvoiceFor(db, orgId), null, "nothing owed at the start");
+
+  const invoice = issueInvoice(db, orgId, "professional");
+  const owed = outstandingInvoiceFor(db, orgId);
+
+  assert.ok(owed, "the invoice just issued is the one the customer has to pay");
+  assert.equal(owed.id, invoice.invoiceId);
+  assert.equal(owed.amount_minor, 14900);
+  assert.equal(owed.status, "issued");
+
+  markInvoicePaid(db, invoice.invoiceId, { reference: "TRX-5" });
+  assert.equal(outstandingInvoiceFor(db, orgId), null, "settled, so nothing is outstanding");
+
+  // The next invoice is the new outstanding one, not the settled one resurfacing.
+  const second = issueInvoice(db, orgId, "starter");
+  assert.equal(outstandingInvoiceFor(db, orgId).id, second.invoiceId);
+
+  closeDb();
+});
+
+test("moving onto a paid plan activates that plan and its limits", () => {
+  const { db, orgId } = workspace();
+  const invoice = issueInvoice(db, orgId, "business");
+
+  markInvoicePaid(db, invoice.invoiceId);
+
+  const subscription = db.prepare("select * from subscriptions where organization_id = ?").get(orgId);
+  assert.equal(subscription.plan_id, "business");
+  assert.equal(subscription.status, "active");
+  assert.equal(entitlementFor(db, orgId, "contacts").limit, 25000);
+  assert.equal(
+    db.prepare("select limit_value from entitlements where organization_id = ? and feature = ?").get(orgId, "assistant-minutes").limit_value,
+    2500,
+  );
 
   closeDb();
 });

@@ -2,7 +2,8 @@ import { requireWorkspace } from "@/lib/session-server";
 import { getDb } from "@/lib/db.mjs";
 import { PAYMENT_PROVIDER_CONFIGURED } from "@/lib/config.mjs";
 import { can } from "@/lib/roles.mjs";
-import { startCardTrialAction } from "@/app/actions";
+import { startCardTrialAction, requestUpgradeAction } from "@/app/actions";
+import { planForDisplay, invoicesFor, outstandingInvoiceFor, bankDetails } from "@/lib/types";
 
 type Row = {
   status: string;
@@ -36,10 +37,18 @@ export default async function Billing({
     )
     .get(session.orgId) as Row | undefined;
 
+  const plans = planForDisplay(db);
+  const invoices = invoicesFor(db, session.orgId);
+  const outstanding = outstandingInvoiceFor(db, session.orgId);
+  const bank = bankDetails();
+
   const cardOnFile = Boolean(row?.card_on_file_at);
   const trialEnds = row?.trial_end ? new Date(row.trial_end) : null;
   const daysLeft = trialEnds ? Math.max(0, Math.ceil((trialEnds.getTime() - Date.now()) / 86_400_000)) : null;
   const mayChange = can(session.role, "billing:write");
+
+  const money = (minor: number, currency: string) => `${currency} ${(minor / 100).toFixed(2)}`;
+  const planName = (id: string) => plans.find((plan) => plan.id === id)?.name ?? id;
 
   return (
     <section className="wrap">
@@ -71,19 +80,24 @@ export default async function Billing({
               {daysLeft !== null ? ` (${daysLeft} day${daysLeft === 1 ? "" : "s"} left)` : ""}
             </p>
           ) : null}
+          {!row?.trial_end && row?.status === "active" ? (
+            <p className="muted small" style={{ margin: 0 }}>
+              No expiry: this plan stays until it is changed.
+            </p>
+          ) : null}
         </div>
 
         <div className="card">
           <h3>Payment method</h3>
           {cardOnFile ? (
             <p className="muted small">
-              {row?.payment_method_brand ?? "card"} ending {row?.payment_method_last4 ?? "----"}.
-              Nothing is charged until the trial ends.
+              {row?.payment_method_brand ?? "card"} ending {row?.payment_method_last4 ?? "----"}. Nothing
+              is charged until the trial ends.
             </p>
           ) : (
             <p className="muted small">
-              No card on file. The workspace exists, but the features that need a subscription stay
-              closed until one is added.
+              No card on file. Card payments are not switched on yet, so paid plans are settled by bank
+              transfer: choose a plan below and an invoice is issued here.
             </p>
           )}
 
@@ -96,8 +110,8 @@ export default async function Billing({
               </form>
             ) : (
               <p className="small muted" style={{ marginBottom: 0 }}>
-                Card payments are not switched on yet. Nothing here can take a payment until a
-                provider account exists, and this page will keep saying so until it does.
+                Nothing here can take a card payment until a provider account exists, and this page will
+                keep saying so until it does.
               </p>
             )
           ) : (
@@ -108,10 +122,167 @@ export default async function Billing({
         </div>
       </div>
 
+      {outstanding ? (
+        <>
+          <h2 style={{ marginTop: "var(--s7)" }}>Invoice waiting to be paid</h2>
+          <div className="card" style={{ marginTop: "var(--s4)" }}>
+            <p className="price" style={{ fontSize: "1.3rem", margin: "0 0 var(--s2)" }}>
+              {money(outstanding.amount_minor, outstanding.currency)}
+            </p>
+            <p className="small muted">
+              For the {planName(outstanding.plan_id)} plan.{" "}
+              {outstanding.due_at
+                ? `Due ${new Date(outstanding.due_at).toLocaleDateString()}.`
+                : "Due when you are ready."}{" "}
+              The plan switches on when the transfer is confirmed, so nothing is charged automatically
+              and there is nothing to cancel.
+            </p>
+
+            {bank.configured ? (
+              <table>
+                <tbody>
+                  <tr>
+                    <th scope="row">Bank</th>
+                    <td>{bank.bankName}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Account title</th>
+                    <td>{bank.accountTitle}</td>
+                  </tr>
+                  {bank.accountNumber ? (
+                    <tr>
+                      <th scope="row">Account number</th>
+                      <td>
+                        <code>{bank.accountNumber}</code>
+                      </td>
+                    </tr>
+                  ) : null}
+                  <tr>
+                    <th scope="row">IBAN</th>
+                    <td>
+                      <code style={{ wordBreak: "break-all" }}>{bank.iban}</code>
+                    </td>
+                  </tr>
+                  {bank.branch ? (
+                    <tr>
+                      <th scope="row">Branch</th>
+                      <td>{bank.branch}</td>
+                    </tr>
+                  ) : null}
+                  <tr>
+                    <th scope="row">Reference</th>
+                    <td>
+                      <code>{outstanding.id}</code>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            ) : (
+              <p className="notice error" role="status">
+                Bank details are not configured on the platform yet, so this invoice cannot be paid
+                from here. Write to contact@raschident.com and the details will be sent directly.
+              </p>
+            )}
+
+            <p className="small muted" style={{ marginBottom: 0 }}>
+              Quote the reference with the transfer. Confirmation is done by hand, usually within one
+              working day, because no bank feed tells us the money arrived.
+            </p>
+          </div>
+        </>
+      ) : null}
+
+      <h2 style={{ marginTop: "var(--s7)" }}>Plans</h2>
+      <p className="small muted">
+        Priced per workspace. Paid plans carry a one-time setup, which covers configuring the product
+        on your own services, prices and hours, and that is the part that decides whether it works.
+      </p>
+
+      <div className="grid" style={{ marginTop: "var(--s4)" }}>
+        {plans.map((plan) => {
+          const isCurrent = plan.id === row?.plan_id;
+          return (
+            <div className="card" key={plan.id}>
+              <h3>{plan.name}</h3>
+              <p className="price" style={{ fontSize: "1.3rem", margin: "var(--s2) 0" }}>
+                {plan.monthly === 0 ? "$0" : `$${plan.monthly}`}
+                <small className="muted"> /month</small>
+              </p>
+              <p className="small muted" style={{ margin: 0 }}>
+                {plan.setup
+                  ? `plus $${plan.setup} setup${plan.liveInDays ? `, live in ${plan.liveInDays} days` : ""}`
+                  : "no setup fee"}
+              </p>
+              <ul className="small muted" style={{ paddingLeft: 16, marginTop: "var(--s3)" }}>
+                <li>{plan.limits.contacts} contacts</li>
+                <li>
+                  {plan.limits.seats} {plan.limits.seats === 1 ? "person" : "people"}
+                </li>
+                <li>{plan.limits["sms-messages"]} SMS a month</li>
+                <li>
+                  {plan.limits["assistant-minutes"] === 0
+                    ? "no assistant minutes"
+                    : `${plan.limits["assistant-minutes"]} assistant minutes a month`}
+                </li>
+              </ul>
+
+              {isCurrent ? (
+                <p className="small muted" style={{ marginBottom: 0 }}>
+                  Your current plan.
+                </p>
+              ) : plan.monthly === 0 ? (
+                <p className="small muted" style={{ marginBottom: 0 }}>
+                  Moving down is done by hand, so nothing is lost halfway. Write to us.
+                </p>
+              ) : mayChange ? (
+                <form action={requestUpgradeAction}>
+                  <input type="hidden" name="planId" value={plan.id} />
+                  <button type="submit">Move to {plan.name}</button>
+                </form>
+              ) : (
+                <p className="small muted" style={{ marginBottom: 0 }}>
+                  Only an owner can change the plan.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {invoices.length ? (
+        <>
+          <h2 style={{ marginTop: "var(--s7)" }}>Invoices</h2>
+          <table style={{ marginTop: "var(--s4)" }}>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Plan</th>
+                <th scope="col">Amount</th>
+                <th scope="col">Status</th>
+                <th scope="col">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((invoice) => (
+                <tr key={invoice.id}>
+                  <td className="muted small">{new Date(invoice.created_at).toLocaleDateString()}</td>
+                  <td className="muted small">{planName(invoice.plan_id)}</td>
+                  <td>{money(invoice.amount_minor, invoice.currency)}</td>
+                  <td>
+                    <span className="tag">{invoice.status}</span>
+                  </td>
+                  <td className="muted small">{invoice.reference ?? invoice.id}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+
       <p className="small muted" style={{ marginTop: "var(--s5)" }}>
-        Card details are entered on the payment provider&rsquo;s own page and never touch this
-        server. What is stored here is a reference and the last four digits, so a support
-        conversation can identify the card without holding it.
+        Card details, when they are switched on, are entered on the payment provider&rsquo;s own page and
+        never touch this server. What is stored here is a reference and the last four digits, so a
+        support conversation can identify the card without holding it.
       </p>
     </section>
   );

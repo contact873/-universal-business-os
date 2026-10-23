@@ -11,6 +11,8 @@ import {
   revokeInvitation,
   updateOrganization,
   resolveIndustry,
+  issueInvoice,
+  outstandingInvoiceFor,
 } from "@/lib/types";
 import { SESSION_COOKIE } from "@/lib/config.mjs";
 import { LEAD_STAGES } from "@/lib/tenant.mjs";
@@ -637,4 +639,64 @@ export async function revokeInvitationAction(form: FormData) {
   }
 
   redirect(`/app/settings?revoked=${encodeURIComponent(result.email ?? "the invitation")}`);
+}
+
+/**
+ * An owner moving onto a paid plan.
+ *
+ * With no card provider connected this is the only way to become a customer: an invoice is issued at
+ * the catalogue price and the workspace is told where to send the money. The plan becomes active only
+ * when a person confirms the transfer arrived, because nothing else can know that, and pretending
+ * otherwise means granting months on hope.
+ */
+export async function requestUpgradeAction(form: FormData) {
+  const session = await requireWorkspace();
+
+  if (!can(session.role, "billing:write")) {
+    redirect(`/app/billing?error=${message("Only an owner can change the plan.")}`);
+  }
+
+  const planId = field(form, "planId");
+  const db0 = db();
+
+  const plan = db0.prepare("select id, name, price_minor, currency from plans where id = ?").get(planId) as
+    | { id: string; name: string; price_minor: number; currency: string }
+    | undefined;
+
+  if (!plan) redirect(`/app/billing?error=${message("That plan does not exist.")}`);
+  if (plan.price_minor === 0) {
+    redirect(`/app/billing?error=${message("The free plan needs no invoice. Pick a paid plan to move onto.")}`);
+  }
+
+  const current = db0
+    .prepare("select plan_id, status from subscriptions where organization_id = ? order by created_at desc limit 1")
+    .get(session.orgId) as { plan_id: string | null; status: string } | undefined;
+
+  if (current?.plan_id === plan.id && current?.status === "active") {
+    redirect(`/app/billing?error=${message("That is already your plan.")}`);
+  }
+
+  // One unpaid invoice at a time. Two invoices for one month is an argument nobody wants.
+  const existing = outstandingInvoiceFor(db0, session.orgId);
+  if (existing) {
+    redirect(
+      `/app/billing?error=${message(
+        "There is already an invoice waiting to be paid. Settle that one first, or write to us and we will cancel it.",
+      )}`,
+    );
+  }
+
+  let invoice;
+  try {
+    invoice = issueInvoice(db0, session.orgId, plan.id);
+  } catch (error) {
+    redirect(`/app/billing?error=${message((error as Error).message)}`);
+  }
+
+  const amount = (invoice.amountMinor / 100).toFixed(2);
+  redirect(
+    `/app/billing?notice=${message(
+      `Invoice issued for ${plan.name}: ${plan.currency} ${amount}. Transfer it to the account below and we will switch the plan on.`,
+    )}`,
+  );
 }

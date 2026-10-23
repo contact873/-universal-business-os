@@ -160,6 +160,22 @@ export function markInvoicePaid(db, invoiceId, { reference = null, actorUserId =
   return applied();
 }
 
+/**
+ * The invoice a customer still has to pay, if there is one.
+ *
+ * Used to stop a workspace issuing itself a second invoice while the first is unpaid: two invoices
+ * for one month is an argument nobody wants to have with a customer.
+ */
+export function outstandingInvoiceFor(db, orgId) {
+  return (
+    db
+      .prepare(
+        "select * from invoices where organization_id = ? and status = 'issued' order by created_at desc limit 1",
+      )
+      .get(orgId) ?? null
+  );
+}
+
 export function invoicesFor(db, orgId, { limit = 20 } = {}) {
   return db
     .prepare("select * from invoices where organization_id = ? order by created_at desc limit ?")
