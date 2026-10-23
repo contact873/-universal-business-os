@@ -1,9 +1,9 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db.mjs";
-import { startSignupAccount } from "@/lib/types";
+import { startSignupAccount, findInvitationByToken, acceptInvitation, pendingInvitationCount } from "@/lib/types";
 import { SESSION_COOKIE } from "@/lib/config.mjs";
 import { LEAD_STAGES } from "@/lib/tenant.mjs";
 import { assertCan } from "@/lib/roles.mjs";
@@ -239,6 +239,21 @@ export async function inviteMemberAction(form: FormData) {
   const email = field(form, "email");
   const role = field(form, "role") || "staff";
 
+  // Seats are a plan limit like any other, and until now they were the one limit nothing checked:
+  // a workspace on the free plan, which includes a single person, could invite fifty. Pending
+  // invitations count, because an invited person is a seat already spoken for.
+  const members = (db().prepare("select count(*) as n from memberships where organization_id = ?").get(session.orgId) as { n: number }).n;
+  const seats = withinLimit(db(), session.orgId, "seats", { current: members + pendingInvitationCount(db(), session.orgId) });
+
+  if (!seats.allowed) {
+    const limit = seats.limit ?? 0;
+    redirect(
+      `/app/settings?error=${message(
+        `Your plan includes ${limit} ${limit === 1 ? "person" : "people"} and it is full. Upgrade the plan to add somebody, or remove a person first.`,
+      )}`,
+    );
+  }
+
   // Stored first, sent second. If the provider is down the invitation still exists and is shown as
   // pending, rather than vanishing with the failure.
   let invitation;
@@ -256,23 +271,33 @@ export async function inviteMemberAction(form: FormData) {
     .prepare("select name from organizations where id = ?")
     .get(session.orgId) as { name: string } | undefined;
 
+  // The link has to be built before it is sent, and it has to be handed back to the person doing the
+  // inviting. Without a mail provider an invitation that cannot be copied is an invitation nobody can
+  // accept, and the token exists nowhere once the hash is written.
+  const origin = await requestOrigin();
+  const acceptUrl = `${origin}/invite/${invitation.token}`;
+
   const body = invitationEmail({
     workspaceName: workspace?.name ?? "the workspace",
     inviterEmail: session.user.email,
     role,
+    acceptUrl,
   });
 
   const sent = await sendEmail({ to: invitation.email, subject: body.subject, html: body.html });
   recordInvitationDelivery(db(), invitation.invitationId, sent);
 
+  // The link travels in the URL so it can be shown once. It is a single-use secret, so it is never
+  // stored in the clear on our side and never listed again after this page.
+  const link = `&link=${encodeURIComponent(acceptUrl)}`;
+
   if (sent.ok) {
-    redirect(`/app/settings?invited=${encodeURIComponent(invitation.email)}`);
+    redirect(`/app/settings?invited=${encodeURIComponent(invitation.email)}${link}`);
   }
 
-  // The honest message: the invitation exists, and no email left the building.
   const why = sent.reason === "not_configured" ? "no email provider is configured" : `the provider refused it (${sent.reason})`;
   redirect(
-    `/app/settings?error=${message(`Invitation for ${invitation.email} was recorded, but not emailed because ${why}.`)}`,
+    `/app/settings?error=${message(`Invitation for ${invitation.email} was recorded, but not emailed because ${why}. Send this link yourself:`)}${link}`,
   );
 }
 
@@ -441,4 +466,94 @@ export async function cancelAppointmentAction(form: FormData) {
   }
 
   redirect("/app/bookings?cancelled=1");
+}
+
+/**
+ * The origin this request arrived on, so a link works where it is actually deployed.
+ *
+ * APP_URL is the intended public address, and it is wrong while the DNS record does not exist. The
+ * request knows better: it is the host the person is already using.
+ */
+async function requestOrigin(): Promise<string> {
+  const h = await headers();
+  const host = h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  if (!host) return (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return `${proto}://${host}`;
+}
+
+/**
+ * Accepting an invitation. Reachable without a session on purpose: the person being invited does not
+ * have an account yet, which is the whole reason they were invited.
+ */
+export async function acceptInvitationAction(form: FormData) {
+  const token = field(form, "token");
+  const db0 = db();
+
+  const found = findInvitationByToken(db0, token);
+  if (!found.ok || !found.acceptable) {
+    redirect(`/invite/${encodeURIComponent(token)}?error=${message("That invitation is no longer valid.")}`);
+  }
+
+  const session = await currentSession();
+
+  let userId: string | null = session.ok ? session.user.id : null;
+
+  // No session yet: make the account, but only if nobody already holds the invited address.
+  if (!userId) {
+    const existing = db0.prepare("select id from users where email_normalized = ?").get(String(found.email).toLowerCase());
+
+    if (existing) {
+      redirect(
+        `/invite/${encodeURIComponent(token)}?error=${message(
+          "An account already exists for that address. Sign in first, then open this link again.",
+        )}`,
+      );
+    }
+
+    const password = field(form, "password");
+    const name = field(form, "name");
+
+    try {
+      ({ userId } = createUser(db0, { email: found.email as string, password, name }));
+    } catch (error) {
+      redirect(`/invite/${encodeURIComponent(token)}?error=${message((error as Error).message)}`);
+    }
+  }
+
+  // The seat limit applies at the moment somebody actually joins, not only when they are invited.
+  const members = (db0.prepare("select count(*) as n from memberships where organization_id = ?").get(found.orgId as string) as { n: number }).n;
+  const alreadyIn = db0
+    .prepare("select 1 as yes from memberships where organization_id = ? and user_id = ?")
+    .get(found.orgId as string, userId);
+
+  if (!alreadyIn) {
+    const seats = withinLimit(db0, found.orgId as string, "seats", { current: members });
+    if (!seats.allowed) {
+      redirect(
+        `/invite/${encodeURIComponent(token)}?error=${message(
+          `${found.organizationName} has no free seat on its current plan. Ask the owner to upgrade or remove somebody first.`,
+        )}`,
+      );
+    }
+  }
+
+  const accepted = acceptInvitation(db0, token, userId);
+  if (!accepted.ok) {
+    const explain =
+      accepted.reason === "wrong_account"
+        ? `That invitation is for ${accepted.invitedEmail}. Sign in as that address, or ask for a new invitation.`
+        : accepted.reason === "already_accepted"
+          ? "That invitation has already been used."
+          : accepted.reason === "expired"
+            ? "That invitation has expired. Ask for a new one."
+            : "That invitation could not be found.";
+    redirect(`/invite/${encodeURIComponent(token)}?error=${message(explain)}`);
+  }
+
+  const uid = userId as string;
+  const { token: sessionToken, expiresAt } = createSession(db0, { userId: uid, orgId: accepted.orgId as string });
+  await setSessionCookie(sessionToken, expiresAt);
+
+  redirect("/app");
 }

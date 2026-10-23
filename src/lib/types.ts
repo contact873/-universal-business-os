@@ -20,6 +20,11 @@ import {
 } from "@/lib/sessions.mjs";
 import { createRouteHandler as createRouteHandlerJs } from "@/lib/guard.mjs";
 import { listAudit as listAuditJs } from "@/lib/audit.mjs";
+import {
+  findInvitationByToken as findInvitationByTokenJs,
+  acceptInvitation as acceptInvitationJs,
+  pendingInvitationCount as pendingInvitationCountJs,
+} from "@/lib/accounts.mjs";
 import { withinLimit as withinLimitJs, applyEvent as applyEventJs } from "@/lib/billing.mjs";
 import { planForDisplay as planForDisplayJs } from "@/lib/plans.mjs";
 import {
@@ -496,4 +501,35 @@ export function createRouteHandler(
   options: RouteHandlerOptions,
 ): (request: Request) => Promise<Response> {
   return createRouteHandlerJs(options as never) as never;
+}
+
+export type InvitationLookup = {
+  ok: boolean;
+  reason?: string;
+  invitationId?: string;
+  orgId?: string;
+  organizationName?: string;
+  email?: string;
+  role?: string;
+  expiresAt?: string;
+  acceptedAt?: string | null;
+  invitedEmail?: string;
+  expired?: boolean;
+  acceptable?: boolean;
+};
+
+export function findInvitationByToken(db: unknown, token: string): InvitationLookup {
+  return findInvitationByTokenJs(db as never, token as never) as InvitationLookup;
+}
+
+export function acceptInvitation(
+  db: unknown,
+  token: string,
+  userId: string | null,
+): InvitationLookup {
+  return acceptInvitationJs(db as never, token as never, userId as never) as InvitationLookup;
+}
+
+export function pendingInvitationCount(db: unknown, orgId: string): number {
+  return pendingInvitationCountJs(db as never, orgId as never) as number;
 }

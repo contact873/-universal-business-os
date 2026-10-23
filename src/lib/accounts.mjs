@@ -333,6 +333,53 @@ export function recordInvitationDelivery(db, invitationId, result) {
   return { ok: result.ok };
 }
 
+/**
+ * Finds an invitation by its token.
+ *
+ * Only the hash is stored, so this is the only way back from a token: hash the presented one and
+ * look for that. Returns the state rather than a bare row, because every caller has to decide
+ * between not-found, expired and already-used, and a page that conflates them tells the visitor
+ * something untrue.
+ */
+export function findInvitationByToken(db, token, { now = Date.now() } = {}) {
+  const presented = String(token ?? "").trim();
+  if (!presented) return { ok: false, reason: "not_found" };
+
+  const row = db
+    .prepare(
+      `select i.*, o.name as organization_name
+         from invitations i
+         join organizations o on o.id = i.organization_id
+        where i.token_hash = ?`,
+    )
+    .get(createHash("sha256").update(presented).digest("hex"));
+
+  if (!row) return { ok: false, reason: "not_found" };
+
+  const expired = Date.parse(row.expires_at) < now;
+  return {
+    ok: true,
+    invitationId: row.id,
+    orgId: row.organization_id,
+    organizationName: row.organization_name,
+    email: row.email,
+    role: row.role,
+    expiresAt: row.expires_at,
+    acceptedAt: row.accepted_at,
+    expired,
+    acceptable: !row.accepted_at && !expired,
+  };
+}
+
+/** How many invitations are outstanding, which is how many future members are already spoken for. */
+export function pendingInvitationCount(db, orgId, { now = Date.now() } = {}) {
+  return db
+    .prepare(
+      "select count(*) as n from invitations where organization_id = ? and accepted_at is null and expires_at > ?",
+    )
+    .get(orgId, new Date(now).toISOString()).n;
+}
+
 export function listInvitations(db, orgId) {
   return db
     .prepare(
@@ -341,6 +388,16 @@ export function listInvitations(db, orgId) {
     .all(orgId);
 }
 
+/**
+ * Accepts an invitation: the person joins the workspace with the role they were invited as.
+ *
+ * The invited address must match the account being used. A token is the kind of secret that gets
+ * forwarded, screenshotted and pasted into a group chat, and joining somebody else's workspace
+ * because you were shown a link is not a thing this should permit.
+ *
+ * Seats are the caller's business. How many people a workspace may hold is a plan limit, and that
+ * check lives with the rest of the entitlement logic rather than here.
+ */
 export function acceptInvitation(db, token, userId, { now = Date.now() } = {}) {
   const hash = createHash("sha256").update(String(token)).digest("hex");
   const invitation = db.prepare("select * from invitations where token_hash = ?").get(hash);
@@ -348,9 +405,24 @@ export function acceptInvitation(db, token, userId, { now = Date.now() } = {}) {
   if (!invitation) return { ok: false, reason: "unknown" };
   if (invitation.accepted_at) return { ok: false, reason: "already_accepted" };
   if (Date.parse(invitation.expires_at) <= now) return { ok: false, reason: "expired" };
+  if (!userId) return { ok: false, reason: "no_user" };
+
+  const user = db.prepare("select id, email from users where id = ?").get(userId);
+  if (!user) return { ok: false, reason: "no_user" };
+  if (normalizeEmail(user.email) !== normalizeEmail(invitation.email)) {
+    return { ok: false, reason: "wrong_account", invitedEmail: invitation.email };
+  }
+
+  // Conditional, so two clicks cannot both succeed and write two memberships and two audit entries
+  // for one invitation.
+  const claimed = db
+    .prepare("update invitations set accepted_at = ? where id = ? and accepted_at is null")
+    .run(new Date(now).toISOString(), invitation.id);
+  if (claimed.changes === 0) return { ok: false, reason: "already_accepted" };
 
   addMember(db, invitation.organization_id, userId, invitation.role);
-  db.prepare("update invitations set accepted_at = ? where id = ?").run(nowIso(), invitation.id);
+
+  const org = db.prepare("select name from organizations where id = ?").get(invitation.organization_id);
 
   writeAudit(db, {
     orgId: invitation.organization_id,
@@ -358,8 +430,13 @@ export function acceptInvitation(db, token, userId, { now = Date.now() } = {}) {
     action: "member.accepted",
     entity: "invitation",
     entityId: invitation.id,
-    meta: { role: invitation.role },
+    meta: { role: invitation.role, email: invitation.email },
   });
 
-  return { ok: true, orgId: invitation.organization_id, role: invitation.role };
+  return {
+    ok: true,
+    orgId: invitation.organization_id,
+    role: invitation.role,
+    organizationName: org?.name ?? "the workspace",
+  };
 }
