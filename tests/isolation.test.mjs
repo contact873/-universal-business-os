@@ -1,4 +1,8 @@
 import "./setup.mjs";
+
+import { PLAN_DEFINITIONS } from "../src/lib/plans.mjs";
+const limitOf = (plan, feature) => PLAN_DEFINITIONS.find((p) => p.id === plan).limits[feature];
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "./fixtures.mjs";
@@ -219,7 +223,7 @@ test("entitlements follow the subscription, and an expired trial stops granting"
   const { db, alpha, alice } = fixture();
 
   assert.equal(entitlementFor(db, alpha, "contacts").granted, true);
-  assert.equal(entitlementFor(db, alpha, "contacts").limit, 250);
+  assert.equal(entitlementFor(db, alpha, "contacts").limit, limitOf("starter", "contacts"));
   assert.equal(entitlementFor(db, alpha, "not-a-feature").granted, false);
 
   // A workspace with no subscription has no entitlement at all, which is not the same as a

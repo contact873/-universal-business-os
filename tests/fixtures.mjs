@@ -6,22 +6,16 @@
 import { openTestDb } from "../src/lib/db.mjs";
 import { createUser, createOrganization, addMember } from "../src/lib/accounts.mjs";
 import { createTenantStore } from "../src/lib/tenant.mjs";
+import { ensurePlans } from "../src/lib/plans.mjs";
 
 export const TEST_PASSWORD = "a-long-enough-password";
 
 export function seedPlans(db) {
-  const plans = [
-    ["starter", "Starter", 1900, { contacts: 250, seats: 2 }],
-    ["professional", "Professional", 4900, { contacts: 2500, seats: 10 }],
-  ];
-  for (const [id, name, price, limits] of plans) {
-    db.prepare(
-      `insert or ignore into plans (id, name, price_minor, currency, exponent, interval, limits_json)
-       values (?, ?, ?, 'USD', 2, 'month', ?)`,
-    ).run(id, name, price, JSON.stringify(limits));
-  }
+  // The real catalogue, so a price or limit change cannot make the tests disagree with the product.
+  ensurePlans(db);
   return db;
 }
+
 
 export function fixture({ withLeads = true } = {}) {
   const db = seedPlans(openTestDb());

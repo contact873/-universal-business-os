@@ -53,7 +53,8 @@ declare
     'services',
     'staff',
     'availability',
-    'appointments'
+    'appointments',
+    'invoices'
   ];
 begin
   foreach t in array tenant_tables loop

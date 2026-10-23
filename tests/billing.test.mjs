@@ -1,4 +1,8 @@
 import "./setup.mjs";
+
+import { PLAN_DEFINITIONS } from "../src/lib/plans.mjs";
+const limitOf = (plan, feature) => PLAN_DEFINITIONS.find((p) => p.id === plan).limits[feature];
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openTestDb, closeDb } from "../src/lib/db.mjs";
@@ -96,7 +100,7 @@ test("a paid subscription grants the plan's entitlements", () => {
   assert.equal(subscription.plan_id, "starter");
 
   assert.equal(entitlementFor(db, alpha, "contacts").granted, true);
-  assert.equal(entitlementFor(db, alpha, "contacts").limit, 250);
+  assert.equal(entitlementFor(db, alpha, "contacts").limit, limitOf("starter", "contacts"));
   assert.equal(entitlementFor(db, alpha, "seats").limit, 2);
 
   closeDb();
@@ -115,7 +119,7 @@ test("a retried event applies once", () => {
   assert.equal(second.reason, "duplicate");
 
   assert.equal(db.prepare("select count(*) as n from webhook_events").get().n, 1);
-  assert.equal(entitlementFor(db, alpha, "contacts").limit, 250);
+  assert.equal(entitlementFor(db, alpha, "contacts").limit, limitOf("starter", "contacts"));
 
   closeDb();
 });
@@ -200,15 +204,15 @@ test("cancelling at period end keeps the service until then, cancelling now does
 test("an upgrade adds entitlements and a downgrade takes them away", () => {
   const { db, alpha, reference } = setup();
   activate(db, reference, { plan: "starter" });
-  assert.equal(entitlementFor(db, alpha, "contacts").limit, 250);
+  assert.equal(entitlementFor(db, alpha, "contacts").limit, limitOf("starter", "contacts"));
 
   applyEvent(db, { provider: "sandbox", eventId: "evt_up", type: "subscription.updated", data: { providerSubscriptionId: reference, status: "active", planId: "professional", periodEnd: future(30) } });
-  assert.equal(entitlementFor(db, alpha, "contacts").limit, 2500);
+  assert.equal(entitlementFor(db, alpha, "contacts").limit, limitOf("professional", "contacts"));
   assert.equal(entitlementFor(db, alpha, "seats").limit, 10);
 
   // A downgrade that only adds entitlements is not a downgrade.
   applyEvent(db, { provider: "sandbox", eventId: "evt_down", type: "subscription.updated", data: { providerSubscriptionId: reference, status: "active", planId: "starter", periodEnd: future(30) } });
-  assert.equal(entitlementFor(db, alpha, "contacts").limit, 250);
+  assert.equal(entitlementFor(db, alpha, "contacts").limit, limitOf("starter", "contacts"));
   assert.equal(entitlementFor(db, alpha, "seats").limit, 2);
 
   closeDb();
@@ -231,8 +235,8 @@ test("billing events for one workspace never touch another", () => {
   const { db, alpha, beta, reference } = setup();
   activate(db, reference, { plan: "starter" });
 
-  assert.equal(entitlementFor(db, alpha, "contacts").limit, 250);
-  assert.equal(entitlementFor(db, beta, "contacts").limit, 250, "beta is on its own trial");
+  assert.equal(entitlementFor(db, alpha, "contacts").limit, limitOf("starter", "contacts"));
+  assert.equal(entitlementFor(db, beta, "contacts").limit, limitOf("starter", "contacts"), "beta is on its own trial");
 
   // Cancelling alpha must leave beta working.
   applyEvent(db, { provider: "sandbox", eventId: "evt_alpha_cancel", type: "subscription.canceled", data: { providerSubscriptionId: reference, atPeriodEnd: false } });
@@ -272,8 +276,8 @@ test("a plan limit is enforced on the server, not by hiding a button", () => {
   activate(db, reference, { plan: "starter" });
 
   assert.equal(withinLimit(db, alpha, "contacts", { current: 249 }).allowed, true);
-  assert.equal(withinLimit(db, alpha, "contacts", { current: 250 }).allowed, false);
-  assert.equal(withinLimit(db, alpha, "contacts", { current: 250 }).reason, "limit_reached");
+  assert.equal(withinLimit(db, alpha, "contacts", { current: limitOf("starter", "contacts") }).allowed, false);
+  assert.equal(withinLimit(db, alpha, "contacts", { current: limitOf("starter", "contacts") }).reason, "limit_reached");
 
   closeDb();
 });

@@ -89,6 +89,20 @@ any other business on the platform.</p>
   };
 }
 
+/** Sent when the workspace exists but no card is attached, so no access has been granted. */
+export function cardRequiredEmail({ company, slug, trialDays = 7 }) {
+  return {
+    subject: `One step left to start your ${trialDays} day trial`,
+    html: `<p>Your workspace <strong>${escapeHtml(company)}</strong> exists. To start the ${trialDays}
+day trial, add a payment method. Nothing is charged until the trial ends, and you can cancel before
+then.</p>
+<p>Sign in and choose a card on the billing page. Your workspace address is
+<strong>${escapeHtml(slug)}</strong>.</p>
+<p>If you would rather not put a card on file, reply to this message and a person will arrange a
+walkthrough instead.</p>`,
+  };
+}
+
 export function leadNotificationEmail({ workspaceName, contactName, message, contactDetails }) {
   return {
     subject: `New enquiry for ${workspaceName}`,

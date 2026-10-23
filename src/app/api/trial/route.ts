@@ -1,8 +1,8 @@
 import { getDb } from "@/lib/db.mjs";
-import { createRouteHandler, createTrialAccount } from "@/lib/types";
+import { createRouteHandler, createTrialAccount, createCardTrialAccount } from "@/lib/types";
 import { ensurePlans } from "@/lib/plans.mjs";
 import { sendEmail } from "@/lib/email.mjs";
-import { PUBLIC_ORIGINS } from "@/lib/config.mjs";
+import { PUBLIC_ORIGINS, TRIAL_REQUIRES_CARD, TRIAL_DAYS, PAYMENT_PROVIDER_CONFIGURED } from "@/lib/config.mjs";
 import { withCors, preflight } from "@/lib/cors.mjs";
 
 export const runtime = "nodejs";
@@ -40,20 +40,23 @@ const trialHandler = createRouteHandler({
 
     let result;
     try {
-      result = await createTrialAccount(
-        db,
-        {
-          email: data.email,
-          password: data.password,
-          company: data.company,
-          industry: data.industry ?? null,
-          country: data.country ?? null,
-          name: data.name ?? null,
-        },
-        {
-          sendEmail: (message: { to: string; subject: string; html: string }) => sendEmail(message),
-        },
-      );
+      const input = {
+        email: data.email,
+        password: data.password,
+        company: data.company,
+        industry: data.industry ?? null,
+        country: data.country ?? null,
+        name: data.name ?? null,
+      };
+
+      const sender = (message: { to: string; subject: string; html: string }) => sendEmail(message);
+
+      // Card first by default: the workspace exists, but nothing is granted until a card is
+      // attached and the provider confirms it. With TRIAL_REQUIRES_CARD=false this becomes an open
+      // trial, which is what you want while a payment account is still being approved.
+      result = TRIAL_REQUIRES_CARD
+        ? await createCardTrialAccount(db, input, { sendEmail: sender, trialDays: TRIAL_DAYS })
+        : await createTrialAccount(db, input, { sendEmail: sender });
     } catch (error) {
       console.error("[trial] failed:", error);
       return {
@@ -87,7 +90,12 @@ const trialHandler = createRouteHandler({
       data: {
         started: true,
         workspace: result.slug,
-        // Whether the welcome email left the building. Honest, and useful in support.
+        // True when the workspace exists but no access has been granted yet, because no card is on
+        // file. The website must say that rather than sending the visitor to a dashboard they
+        // cannot use.
+        needsCard: Boolean(result.needsCard),
+        providerConfigured: PAYMENT_PROVIDER_CONFIGURED,
+        trialDays: result.trialDays ?? TRIAL_DAYS,
         emailed: Boolean(result.delivery?.ok),
       },
     };

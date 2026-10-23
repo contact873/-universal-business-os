@@ -198,6 +198,7 @@ export function applyEvent(db, { provider, eventId, type, data = {}, raw = null,
       now,
       status: changes.status ?? subscription.status,
       periodEnd: changes.period_end ?? subscription.period_end,
+      trialEnd: changes.trial_end ?? subscription.trial_end,
     });
 
     writeAudit(db, {
@@ -217,13 +218,15 @@ export function applyEvent(db, { provider, eventId, type, data = {}, raw = null,
  * Brings the entitlement rows in line with the plan. Revoking matters as much as granting: a
  * downgrade that only adds entitlements is not a downgrade.
  */
-export function syncEntitlements(db, orgId, planId, { now = Date.now(), status = "active", periodEnd = null } = {}) {
+export function syncEntitlements(db, orgId, planId, { now = Date.now(), status = "active", periodEnd = null, trialEnd = null } = {}) {
   if (!planId) return { granted: 0, revoked: 0, reason: "no_plan" };
 
   const plan = db.prepare("select * from plans where id = ?").get(planId);
   if (!plan) return { granted: 0, revoked: 0, reason: "unknown_plan" };
 
-  const paying = isPaying({ status, period_end: periodEnd, trial_end: null }, now);
+  // trialEnd has to be passed through, or a trial resolves as "not paying" and the workspace it was
+  // just granted access to loses it in the same breath.
+  const paying = isPaying({ status, period_end: periodEnd, trial_end: trialEnd }, now);
   const limits = plan.limits_json ? JSON.parse(plan.limits_json) : {};
 
   if (!paying) {
@@ -281,6 +284,111 @@ export function startCheckout(db, orgId, planId) {
   ).run(subscriptionId, orgId, providerReference, planId, nowIso());
 
   return { subscriptionId, providerReference, plan };
+}
+
+/* card-on-file trials ------------------------------------------------------ */
+
+export const TRIAL_DAYS = 7;
+
+/**
+ * A pending subscription that requires a card.
+ *
+ * Status is 'incomplete', which `isPaying` treats as not paying, so a visitor who registers but
+ * never attaches a card gets no access. That is what makes "card first" a property of the system
+ * rather than a promise in the interface.
+ */
+export function beginCardTrial(db, orgId, planId, { trialDays = TRIAL_DAYS, now = Date.now() } = {}) {
+  const plan = db.prepare("select * from plans where id = ?").get(planId);
+  if (!plan) {
+    const error = new Error(`Unknown plan "${planId}".`);
+    error.status = 400;
+    throw error;
+  }
+
+  const subscriptionId = newId("sub");
+  db.prepare(
+    `insert into subscriptions
+       (id, organization_id, provider, provider_id, status, plan_id, trial_end, period_end, trial_days, created_at)
+     values (?, ?, null, null, 'incomplete', ?, null, null, ?, ?)`,
+  ).run(subscriptionId, orgId, planId, trialDays, new Date(now).toISOString());
+
+  writeAudit(db, {
+    orgId,
+    actorUserId: null,
+    action: "billing.trial_awaiting_card",
+    entity: "subscription",
+    entityId: subscriptionId,
+    meta: { planId, trialDays },
+  });
+
+  return { subscriptionId, plan, trialDays, status: "incomplete" };
+}
+
+/**
+ * Called by the provider adapter once a card is confirmed attached.
+ *
+ * Only brand and last four are stored. The card itself lives with the provider, which is what keeps
+ * this database out of PCI scope.
+ */
+export function attachPaymentMethod(db, orgId, { customerId, brand = null, last4 = null, now = Date.now(), trialDays = null }) {
+  if (!customerId) return { ok: false, reason: "no_customer" };
+
+  const subscription = db
+    .prepare("select * from subscriptions where organization_id = ? order by created_at desc limit 1")
+    .get(orgId);
+  if (!subscription) return { ok: false, reason: "no_subscription" };
+
+  const days = trialDays ?? subscription.trial_days ?? TRIAL_DAYS;
+  const trialEnd = new Date(now + days * 86_400_000).toISOString();
+  const at = new Date(now).toISOString();
+
+  db.prepare(
+    `update subscriptions
+        set status = 'trialing',
+            provider_customer_id = ?,
+            payment_method_brand = ?,
+            payment_method_last4 = ?,
+            card_on_file_at = ?,
+            trial_end = ?,
+            trial_days = ?
+      where id = ?`,
+  ).run(customerId, brand, last4, at, trialEnd, days, subscription.id);
+
+  const entitlements = syncEntitlements(db, orgId, subscription.plan_id, {
+    now,
+    status: "trialing",
+    trialEnd,
+  });
+
+  writeAudit(db, {
+    orgId,
+    actorUserId: null,
+    action: "billing.card_attached",
+    entity: "subscription",
+    entityId: subscription.id,
+    // Deliberately no card number, no expiry, no CVV. Only what a support agent needs to identify
+    // the card the customer is talking about.
+    meta: { brand, last4, trialEnd },
+  });
+
+  return { ok: true, subscriptionId: subscription.id, status: "trialing", trialEnd, entitlements };
+}
+
+/** What the provider is expected to do next, expressed for a human reading a support ticket. */
+export function trialState(db, orgId, { now = Date.now() } = {}) {
+  const subscription = currentSubscription(db, orgId);
+  if (!subscription) return { status: "none", paying: false, cardOnFile: false };
+
+  const trialEnd = subscription.trial_end ? Date.parse(subscription.trial_end) : null;
+
+  return {
+    status: subscription.status,
+    paying: isPaying(subscription, now),
+    cardOnFile: Boolean(subscription.card_on_file_at),
+    trialDays: subscription.trial_days ?? null,
+    trialEnd: subscription.trial_end ?? null,
+    endsInDays: trialEnd ? Math.ceil((trialEnd - now) / 86_400_000) : null,
+  };
 }
 
 /**

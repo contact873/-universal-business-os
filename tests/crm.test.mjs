@@ -1,4 +1,8 @@
 import "./setup.mjs";
+
+import { PLAN_DEFINITIONS } from "../src/lib/plans.mjs";
+const limitOf = (plan, feature) => PLAN_DEFINITIONS.find((p) => p.id === plan).limits[feature];
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "./fixtures.mjs";
@@ -250,7 +254,7 @@ test("a plan limit is readable on the server, not only in the interface", () => 
   // "is this allowed" without trusting anything the browser sent.
   const entitlement = entitlementFor(db, alpha, "contacts");
   assert.equal(entitlement.granted, true);
-  assert.equal(entitlement.limit, 250);
+  assert.equal(entitlement.limit, limitOf("starter", "contacts"));
 
   const seats = entitlementFor(db, alpha, "seats");
   assert.equal(seats.limit, 2);

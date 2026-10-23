@@ -258,6 +258,57 @@ export async function inviteMemberAction(form: FormData) {
   );
 }
 
+export async function markInvoicePaidAction(form: FormData) {
+  const session = await requireWorkspace();
+
+  // Platform administration only. A workspace owner confirming their own invoice would be a
+  // conflict of interest, not a feature.
+  if (!session.user.is_platform_admin) {
+    redirect(`/admin/invoices?error=${message("Only platform administration can confirm a payment.")}`);
+  }
+
+  const invoiceId = field(form, "invoiceId");
+  const reference = field(form, "reference") || null;
+
+  const { markInvoicePaid } = await import("@/lib/payments.mjs");
+  const result = markInvoicePaid(getDb(), invoiceId, {
+    reference,
+    actorUserId: session.user.id,
+  } as never);
+
+  if (!result.ok) {
+    const explain =
+      result.reason === "already_paid"
+        ? "That invoice was already marked paid."
+        : "That invoice does not exist.";
+    redirect(`/admin/invoices?error=${message(explain)}`);
+  }
+
+  redirect("/admin/invoices?paid=1");
+}
+
+export async function startCardTrialAction() {
+  const session = await requireWorkspace();
+
+  try {
+    assertCan(session.role, "billing:write");
+  } catch {
+    redirect(`/app/billing?error=${message("Only an owner can change billing details.")}`);
+  }
+
+  // Fail closed and say why. Until a provider account exists there is no hosted checkout to send
+  // anybody to, and collecting a card on this server is not an option.
+  if (!process.env.PAYMENT_PROVIDER_KEY?.trim()) {
+    redirect(
+      `/app/billing?error=${message("Card payments are not switched on yet, so nothing was charged.")}`,
+    );
+  }
+
+  redirect(
+    `/app/billing?error=${message("The payment provider adapter is not built yet. The card form will appear here once it is.")}`,
+  );
+}
+
 export async function createServiceAction(form: FormData) {
   const session = await requireWorkspace();
   try {

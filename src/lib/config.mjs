@@ -40,6 +40,14 @@ export const RESEND_API_KEY = env.RESEND_API_KEY?.trim() ?? "";
 export const EMAIL_FROM = env.EMAIL_FROM?.trim() || "Business OS <onboarding@resend.dev>";
 
 export const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
+
+// Trials. The business asked for card-first: register, add a card, get seven days, then charge.
+// When no payment provider is configured there is nowhere to enter a card, so the endpoint says so
+// instead of granting access it cannot later bill for. Set TRIAL_REQUIRES_CARD=false to run open
+// trials while the provider account is still being approved.
+export const TRIAL_REQUIRES_CARD = String(env.TRIAL_REQUIRES_CARD ?? "true").toLowerCase() !== "false";
+export const TRIAL_DAYS = Number(env.TRIAL_DAYS ?? 7) || 7;
+export const PAYMENT_PROVIDER_CONFIGURED = Boolean(env.PAYMENT_PROVIDER_KEY?.trim());
 export const RATE_LIMITS = {
   login: { limit: 10, windowMs: 60_000 },
   signup: { limit: 5, windowMs: 60_000 },
