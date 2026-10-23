@@ -140,3 +140,30 @@ test("both doors to sign-up give the same workspace", async () => {
 
   closeDb();
 });
+
+test("a sign-up creates one user, one workspace and one subscriber, or nothing", async () => {
+  const db = seedPlans(openTestDb());
+  const person = { email: "once@example.test", password: "a-long-enough-password", company: "Once Clinic" };
+
+  const first = await startSignupAccount(db, person, { sendEmail: null, mode: "free" });
+  assert.equal(first.ok, true);
+
+  const counts = () => ({
+    users: db.prepare("select count(*) as n from users").get().n,
+    orgs: db.prepare("select count(*) as n from organizations").get().n,
+    members: db.prepare("select count(*) as n from memberships").get().n,
+    subs: db.prepare("select count(*) as n from subscriptions").get().n,
+    subscribers: db.prepare("select count(*) as n from subscribers").get().n,
+  });
+
+  assert.deepEqual(counts(), { users: 1, orgs: 1, members: 1, subs: 1, subscribers: 1 });
+
+  // A second attempt is refused, and leaves no orphan user behind: a user row with no workspace is
+  // a person who cannot sign in and cannot sign up, which is what the live sign-up page produced.
+  const second = await startSignupAccount(db, person, { sendEmail: null, mode: "free" });
+  assert.equal(second.ok, false);
+  assert.equal(second.reason, "email_taken");
+  assert.deepEqual(counts(), { users: 1, orgs: 1, members: 1, subs: 1, subscribers: 1 });
+
+  closeDb();
+});

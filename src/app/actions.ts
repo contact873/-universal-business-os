@@ -63,27 +63,38 @@ export async function signUpAction(form: FormData) {
   const company = field(form, "company");
   const industry = field(form, "industry") || null;
 
-  let userId: string;
-  try {
-    ({ userId } = createUser(db(), { email, password, name }));
-  } catch (error) {
-    redirect(`/signup?error=${message((error as Error).message)}`);
-  }
-
+  let result;
   try {
     // Goes through the same path as the marketing site's form, so the plan and the subscriber row
     // are identical either way. This used to hardcode the paid Starter plan and skip the registry.
-    const result = await startSignupAccount(
+    //
+    // It creates the user itself. Calling createUser first and then handing the same address in here
+    // created the person twice: the second attempt hit the unique constraint, the sign-up failed, and
+    // it left a user row with no workspace behind it.
+    result = await startSignupAccount(
       db(),
       { email, password, company, industry, country: field(form, "country") || null, name },
       { sendEmail: (outgoing) => sendEmail(outgoing) },
     );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "digest" in error) throw error;
+    redirect(`/signup?error=${message((error as Error).message)}`);
+  }
 
-    if (!result.ok) {
-      redirect(`/signup?error=${message("That could not be created. Try another email address.")}`);
-    }
+  if (!result.ok || !result.userId || !result.orgId) {
+    // Say which it is. On our own sign-up page there is nothing to protect by being vague, and
+    // "try another email address" told somebody with an account nothing they could act on.
+    const explain =
+      result.reason === "email_taken"
+        ? "That email already has an account. Sign in instead, or use a different address."
+        : result.reason === "bad_input" || result.reason === "bad_company"
+          ? (result.message ?? "Check the details and try again.")
+          : "That could not be created. Try again, or write to us.";
+    redirect(`/signup?error=${message(explain)}`);
+  }
 
-    const { token, expiresAt } = createSession(db(), { userId, orgId: result.orgId as string });
+  try {
+    const { token, expiresAt } = createSession(db(), { userId: result.userId, orgId: result.orgId });
     await setSessionCookie(token, expiresAt);
   } catch (error) {
     if (typeof error === "object" && error !== null && "digest" in error) throw error;
