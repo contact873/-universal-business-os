@@ -21,6 +21,55 @@ import {
 import { createRouteHandler as createRouteHandlerJs } from "@/lib/guard.mjs";
 import { listAudit as listAuditJs } from "@/lib/audit.mjs";
 import { withinLimit as withinLimitJs, applyEvent as applyEventJs } from "@/lib/billing.mjs";
+import { planForDisplay as planForDisplayJs } from "@/lib/plans.mjs";
+import { createTrialAccount as createTrialAccountJs } from "@/lib/onboarding.mjs";
+
+export type TrialInput = {
+  email: string;
+  password: string;
+  company: string;
+  industry?: string | null;
+  country?: string | null;
+  name?: string | null;
+};
+
+export type TrialResult = {
+  ok: boolean;
+  reason?: string;
+  message?: string;
+  userId?: string;
+  orgId?: string;
+  slug?: string;
+  delivery?: SendResult;
+  createdAt?: string;
+};
+
+export function createTrialAccount(
+  db: unknown,
+  input: TrialInput,
+  options?: {
+    sendEmail?:
+      | ((message: { to: string; subject: string; html: string }) => SendResult | Promise<SendResult>)
+      | null;
+    plan?: string;
+  },
+): Promise<TrialResult> {
+  return createTrialAccountJs(db as never, input as never, options as never) as Promise<TrialResult>;
+}
+
+export type PlanDisplay = {
+  id: string;
+  name: string;
+  monthly: number;
+  setup: number | null;
+  liveInDays: number | null;
+  currency: string;
+  limits: Record<string, number>;
+};
+
+export function planForDisplay(db: unknown): PlanDisplay[] {
+  return planForDisplayJs(db as never) as PlanDisplay[];
+}
 import {
   zonedToUtc as zonedToUtcJs,
   createService as createServiceJs,

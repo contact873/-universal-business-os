@@ -71,6 +71,24 @@ ${linkPlain}
   };
 }
 
+/** Sent the moment a trial workspace exists. It must not promise anything the product cannot do. */
+export function welcomeEmail({ company, slug }) {
+  const workspace = escapeHtml(company);
+  return {
+    subject: `Your workspace is ready: ${company}`,
+    html: `<p>Your workspace <strong>${workspace}</strong> exists and your trial has started.</p>
+<p>Three things are worth doing first:</p>
+<ol>
+  <li>Add the services you sell, with their real durations.</li>
+  <li>Add the people who answer enquiries, with their timezone.</li>
+  <li>Add one contact by hand, so you can see how a person is stored with more than one way of reaching them.</li>
+</ol>
+<p>Your workspace address is <strong>${escapeHtml(slug)}</strong>. Nothing you put in it is visible to
+any other business on the platform.</p>
+<p>If anything is unclear, reply to this message and a person will answer.</p>`,
+  };
+}
+
 export function leadNotificationEmail({ workspaceName, contactName, message, contactDetails }) {
   return {
     subject: `New enquiry for ${workspaceName}`,
