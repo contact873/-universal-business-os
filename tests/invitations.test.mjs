@@ -11,6 +11,7 @@ import {
   findInvitationByToken,
   pendingInvitationCount,
   membershipsFor,
+  revokeInvitation,
 } from "../src/lib/accounts.mjs";
 import { withinLimit } from "../src/lib/billing.mjs";
 
@@ -163,5 +164,42 @@ test("the free plan's single seat is already taken by its owner", () => {
   assert.equal(seats.limit, 1);
   assert.equal(seats.allowed, false, "a second person is what Professional sells");
 
+  closeDb();
+});
+
+test("cancelling an invitation frees the seat and kills the link", () => {
+  const { db, orgId } = workspace({ plan: "starter" });
+  const invitation = createInvitation(db, orgId, { email: "one@example.test", role: "staff" });
+
+  assert.equal(pendingInvitationCount(db, orgId), 1);
+
+  const revoked = revokeInvitation(db, orgId, invitation.invitationId);
+  assert.equal(revoked.ok, true);
+  assert.equal(revoked.email, "one@example.test");
+
+  // The seat is free again, which is the entire point: an undeliverable invitation used to hold it
+  // until it expired, locking a one seat workspace out of inviting anybody.
+  assert.equal(pendingInvitationCount(db, orgId), 0);
+
+  // The link stops working, because the row is gone.
+  assert.equal(findInvitationByToken(db, invitation.token).ok, false);
+  assert.equal(acceptInvitation(db, invitation.token, "usr_anyone").reason, "unknown");
+
+  assert.equal(
+    db.prepare("select count(*) as n from audit_logs where action = ?").get("member.invitation_revoked").n,
+    1,
+    "cancelling is a consequential action, so it is recorded",
+  );
+
+  // A workspace from a different tenant cannot cancel it, and an accepted one cannot either.
+  const other = workspace({ plan: "starter" });
+  assert.equal(revokeInvitation(other.db, other.orgId, invitation.invitationId).reason, "not_found");
+  closeDb();
+
+  const { db: db2, orgId: org2 } = workspace({ plan: "starter" });
+  const live = createInvitation(db2, org2, { email: "two@example.test", role: "staff" });
+  const { userId } = createUser(db2, { email: "two@example.test", password: "a-long-enough-password" });
+  acceptInvitation(db2, live.token, userId);
+  assert.equal(revokeInvitation(db2, org2, live.invitationId).reason, "already_accepted");
   closeDb();
 });

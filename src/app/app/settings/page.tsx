@@ -2,16 +2,32 @@ import { requireWorkspace } from "@/lib/session-server";
 import { getDb } from "@/lib/db.mjs";
 import { auditTrail, listInvitations, type AuditRow } from "@/lib/types";
 import { can } from "@/lib/roles.mjs";
-import { inviteMemberAction } from "@/app/actions";
+import { inviteMemberAction, revokeInvitationAction, updateWorkspaceAction } from "@/app/actions";
 
 type Member = { email: string; name: string | null; role: string };
+
+// Industry choices, with whatever is already set added in front so opening the page cannot silently
+// change a value somebody chose.
+const INDUSTRIES = ["med-spa", "salon", "real-estate", "consulting", "home-services", "retail", "other"];
+
+const TIMEZONE_CHOICES = [
+  "Asia/Karachi",
+  "Asia/Dubai",
+  "Asia/Riyadh",
+  "Asia/Qatar",
+  "Asia/Kolkata",
+  "Europe/London",
+  "America/New_York",
+  "America/Los_Angeles",
+  "UTC",
+];
 
 export default async function Settings({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; invited?: string }>;
+  searchParams: Promise<{ error?: string; invited?: string; link?: string; saved?: string; revoked?: string }>;
 }) {
-  const { error, invited } = await searchParams;
+  const { error, invited, link, saved, revoked } = await searchParams;
   const session = await requireWorkspace();
   const db = getDb();
 
@@ -36,6 +52,10 @@ export default async function Settings({
     ? auditTrail(db, session.orgId, { limit: 25 })
     : [];
 
+  const industryOptions = [
+    ...new Set([...(org?.industry ? [org.industry] : []), ...INDUSTRIES]),
+  ];
+
   return (
     <section className="wrap">
       {error ? (
@@ -43,10 +63,34 @@ export default async function Settings({
           {error}
         </p>
       ) : null}
-      {invited ? (
+      {saved ? (
         <p className="notice ok" role="status">
-          Invitation recorded for {invited}. Sending it by email is not built yet, so the person
-          has not been contacted.
+          Workspace saved.
+        </p>
+      ) : null}
+      {revoked ? (
+        <p className="notice ok" role="status">
+          Invitation for {revoked} cancelled, and the seat is free again.
+        </p>
+      ) : null}
+      {invited && link ? (
+        <div className="notice ok" role="status">
+          <p style={{ marginBottom: "var(--s3)" }}>
+            Invitation recorded for {invited}. No email was sent, so send this link yourself. It works
+            once, and it is shown only on this page: the database stores a hash of it, never the link.
+          </p>
+          <p className="small" style={{ wordBreak: "break-all", marginBottom: "var(--s3)" }}>
+            <a href={link}>{link}</a>
+          </p>
+          <p className="small muted">
+            Whoever opens it must be able to receive mail at {invited}, because the invitation is tied
+            to that address.
+          </p>
+        </div>
+      ) : null}
+      {invited && !link ? (
+        <p className="notice ok" role="status">
+          Invitation recorded for {invited}, and the email has gone.
         </p>
       ) : null}
 
@@ -56,6 +100,42 @@ export default async function Settings({
           <p className="muted small">
             {org?.name} · {org?.industry ?? "no industry set"} · {org?.timezone ?? "UTC"}
           </p>
+          {can(session.role, "org:update") ? (
+            <form action={updateWorkspaceAction} style={{ marginTop: "var(--s4)" }}>
+              <div className="field">
+                <label htmlFor="w-name">Workspace name</label>
+                <input id="w-name" name="name" defaultValue={org?.name ?? ""} maxLength={80} />
+              </div>
+              <div className="form-row">
+                <div className="field">
+                  <label htmlFor="w-industry">Industry</label>
+                  <select id="w-industry" name="industry" defaultValue={org?.industry ?? "other"}>
+                    {industryOptions.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="w-timezone">Timezone</label>
+                  <select id="w-timezone" name="timezone" defaultValue={org?.timezone ?? "UTC"}>
+                    {TIMEZONE_CHOICES.map((zone) => (
+                      <option key={zone} value={zone}>
+                        {zone}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="small muted">
+                Appointments are stored in UTC and displayed in this timezone, so a wrong value shows
+                every booking at the wrong hour.
+              </p>
+              <button type="submit">Save workspace</button>
+            </form>
+          ) : null}
+
           <h3 style={{ marginTop: "var(--s5)" }}>Intake key</h3>
           <p className="muted small">
             Give this to a website you control so that its enquiry form can post into this
@@ -133,6 +213,12 @@ export default async function Settings({
                         : invitation.sent_at
                           ? "(emailed)"
                           : `(not emailed${invitation.send_error ? `: ${invitation.send_error}` : ""})`}
+                      {!invitation.accepted_at ? (
+                        <form action={revokeInvitationAction} style={{ display: "inline", marginLeft: "var(--s3)" }}>
+                          <input type="hidden" name="invitationId" value={invitation.id} />
+                          <button type="submit">Cancel</button>
+                        </form>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

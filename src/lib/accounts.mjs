@@ -380,6 +380,89 @@ export function pendingInvitationCount(db, orgId, { now = Date.now() } = {}) {
     .get(orgId, new Date(now).toISOString()).n;
 }
 
+/**
+ * Cancels a pending invitation.
+ *
+ * Without this, an invitation that can never be delivered still occupies a seat until it expires, so
+ * a workspace on a one-seat plan can be locked out of inviting anybody at all. The row is deleted
+ * rather than flagged: an unusable invitation is not a record worth keeping, and the audit entry
+ * preserves what happened.
+ */
+export function revokeInvitation(db, orgId, invitationId, { actorUserId = null, now = Date.now() } = {}) {
+  const invitation = db
+    .prepare("select * from invitations where id = ? and organization_id = ?")
+    .get(invitationId, orgId);
+
+  if (!invitation) return { ok: false, reason: "not_found" };
+  if (invitation.accepted_at) return { ok: false, reason: "already_accepted" };
+
+  db.prepare("delete from invitations where id = ?").run(invitationId);
+
+  writeAudit(db, {
+    orgId,
+    actorUserId,
+    action: "member.invitation_revoked",
+    entity: "invitation",
+    entityId: invitationId,
+    meta: { email: invitation.email, role: invitation.role, at: new Date(now).toISOString() },
+  });
+
+  return { ok: true, email: invitation.email };
+}
+
+/**
+ * Edits the workspace itself.
+ *
+ * The timezone matters more than it looks: bookings are stored in UTC and rendered through this
+ * value, so a workspace left on UTC shows a clinic in Karachi the wrong appointment time by five
+ * hours. Validation happens here rather than in the form, because a timezone that Intl cannot parse
+ * would break every booking the workspace makes.
+ */
+export function updateOrganization(db, orgId, { name = null, industry = null, timezone = null, actorUserId = null } = {}) {
+  const org = db.prepare("select * from organizations where id = ?").get(orgId);
+  if (!org) return { ok: false, reason: "not_found" };
+
+  const changes = {};
+
+  if (name !== null) {
+    const clean = String(name).trim();
+    if (clean.length < 2 || clean.length > 80) return { ok: false, reason: "bad_name" };
+    changes.name = clean;
+  }
+
+  if (industry !== null) {
+    const clean = String(industry).trim().toLowerCase();
+    if (clean.length > 40) return { ok: false, reason: "bad_industry" };
+    changes.industry = clean || null;
+  }
+
+  if (timezone !== null) {
+    const clean = String(timezone).trim();
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: clean });
+    } catch {
+      return { ok: false, reason: "bad_timezone" };
+    }
+    changes.timezone = clean;
+  }
+
+  if (!Object.keys(changes).length) return { ok: true, changed: false };
+
+  const assignments = Object.keys(changes).map((key) => `${key} = ?`).join(", ");
+  db.prepare(`update organizations set ${assignments} where id = ?`).run(...Object.values(changes), orgId);
+
+  writeAudit(db, {
+    orgId,
+    actorUserId,
+    action: "org.updated",
+    entity: "organization",
+    entityId: orgId,
+    meta: changes,
+  });
+
+  return { ok: true, changed: true, changes };
+}
+
 export function listInvitations(db, orgId) {
   return db
     .prepare(

@@ -24,6 +24,8 @@ import {
   findInvitationByToken as findInvitationByTokenJs,
   acceptInvitation as acceptInvitationJs,
   pendingInvitationCount as pendingInvitationCountJs,
+  revokeInvitation as revokeInvitationJs,
+  updateOrganization as updateOrganizationJs,
 } from "@/lib/accounts.mjs";
 import { withinLimit as withinLimitJs, applyEvent as applyEventJs } from "@/lib/billing.mjs";
 import { planForDisplay as planForDisplayJs } from "@/lib/plans.mjs";
@@ -532,4 +534,16 @@ export function acceptInvitation(
 
 export function pendingInvitationCount(db: unknown, orgId: string): number {
   return pendingInvitationCountJs(db as never, orgId as never) as number;
+}
+
+export function revokeInvitation(db: unknown, orgId: string, invitationId: string): { ok: boolean; reason?: string; email?: string } {
+  return revokeInvitationJs(db as never, orgId as never, invitationId as never) as never;
+}
+
+export function updateOrganization(
+  db: unknown,
+  orgId: string,
+  changes: { name?: string | null; industry?: string | null; timezone?: string | null },
+): { ok: boolean; reason?: string; changed?: boolean } {
+  return updateOrganizationJs(db as never, orgId as never, changes as never) as never;
 }

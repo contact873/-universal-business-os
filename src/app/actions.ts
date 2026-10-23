@@ -3,10 +3,17 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db.mjs";
-import { startSignupAccount, findInvitationByToken, acceptInvitation, pendingInvitationCount } from "@/lib/types";
+import {
+  startSignupAccount,
+  findInvitationByToken,
+  acceptInvitation,
+  pendingInvitationCount,
+  revokeInvitation,
+  updateOrganization,
+} from "@/lib/types";
 import { SESSION_COOKIE } from "@/lib/config.mjs";
 import { LEAD_STAGES } from "@/lib/tenant.mjs";
-import { assertCan } from "@/lib/roles.mjs";
+import { assertCan, can } from "@/lib/roles.mjs";
 import { writeAudit } from "@/lib/audit.mjs";
 import { id as newId, nowIso } from "@/lib/identities.mjs";
 import { requireWorkspace, currentSession } from "@/lib/session-server";
@@ -556,4 +563,62 @@ export async function acceptInvitationAction(form: FormData) {
   await setSessionCookie(sessionToken, expiresAt);
 
   redirect("/app");
+}
+
+/**
+ * Edits the workspace itself. The timezone is the reason this exists: bookings are stored in UTC and
+ * rendered through this value, so a clinic left on UTC shows every appointment at the wrong hour.
+ */
+export async function updateWorkspaceAction(form: FormData) {
+  const session = await requireWorkspace();
+
+  if (!can(session.role, "org:update")) {
+    redirect(`/app/settings?error=${message("Only an owner or an admin can change the workspace.")}`);
+  }
+
+  const result = updateOrganization(db(), session.orgId, {
+    name: field(form, "name") || null,
+    industry: field(form, "industry") || null,
+    timezone: field(form, "timezone") || null,
+  });
+
+  if (!result.ok) {
+    const explain =
+      result.reason === "bad_timezone"
+        ? "That timezone is not one the system recognises, so appointments would be stored inconsistently."
+        : result.reason === "bad_name"
+          ? "The workspace name needs between two and eighty characters."
+          : "That could not be saved.";
+    redirect(`/app/settings?error=${message(explain)}`);
+  }
+
+  redirect("/app/settings?saved=1");
+}
+
+/**
+ * Cancels an invitation that has not been accepted.
+ *
+ * An invitation that cannot be delivered still holds a seat until it expires, so on a one seat plan a
+ * workspace can be locked out of inviting anybody for a week. This is the release valve.
+ */
+export async function revokeInvitationAction(form: FormData) {
+  const session = await requireWorkspace();
+
+  if (!can(session.role, "member:invite")) {
+    redirect(`/app/settings?error=${message("Only an owner or an admin can cancel an invitation.")}`);
+  }
+
+  const result = revokeInvitation(db(), session.orgId, field(form, "invitationId"));
+
+  if (!result.ok) {
+    redirect(
+      `/app/settings?error=${message(
+        result.reason === "already_accepted"
+          ? "That invitation has already been accepted, so the person is a member now."
+          : "That invitation no longer exists.",
+      )}`,
+    );
+  }
+
+  redirect(`/app/settings?revoked=${encodeURIComponent(result.email ?? "the invitation")}`);
 }
