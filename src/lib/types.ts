@@ -10,6 +10,8 @@ import {
   createUser as createUserJs,
   authenticate as authenticateJs,
   createOrganization as createOrganizationJs,
+  ensureWorkspaceForUser as ensureWorkspaceForUserJs,
+  suggestWorkspaceName as suggestWorkspaceNameJs,
   membershipsFor as membershipsForJs,
   organizationByIntakeKey as organizationByIntakeKeyJs,
 } from "@/lib/accounts.mjs";
@@ -457,6 +459,18 @@ export type Membership = { orgId: string; role: string; name: string; slug: stri
 
 export function membershipsFor(db: unknown, userId: string): Membership[] {
   return membershipsForJs(db as never, userId) as never;
+}
+
+export function ensureWorkspaceForUser(
+  db: unknown,
+  userId: string,
+  input: { timezone?: string } = {},
+): { created: boolean; orgId: string } {
+  return ensureWorkspaceForUserJs(db as never, userId, input as never) as { created: boolean; orgId: string };
+}
+
+export function suggestWorkspaceName(email: string): string {
+  return suggestWorkspaceNameJs(email) as string;
 }
 
 export function organizationByIntakeKey(

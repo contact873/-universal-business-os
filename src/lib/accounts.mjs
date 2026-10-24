@@ -189,6 +189,59 @@ export function membershipsFor(db, userId) {
  * That is intentional: a free plan that "expires" is a trial wearing a costume, and it is the kind
  * of thing that produces angry email.
  */
+const GENERIC_MAILBOXES = new Set([
+  "info", "contact", "hello", "admin", "sales", "office", "mail", "support", "enquiries", "team", "accounts",
+]);
+
+/**
+ * A name for a workspace nobody has named yet, taken from the address they signed up with. Contact
+ * addresses say nothing about the business, so for those we use the domain instead of the mailbox.
+ */
+export function suggestWorkspaceName(email) {
+  const [local = "", domain = ""] = String(email ?? "").toLowerCase().split("@");
+  const basis = local && !GENERIC_MAILBOXES.has(local) ? local : (domain.split(".")[0] ?? "");
+  const words = basis.split(/[._+-]+/).filter(Boolean);
+  if (!words.length) return "My workspace";
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ").slice(0, 80);
+}
+
+/**
+ * Gives a signed-in person the workspace they came for.
+ *
+ * Without this, signing up on the website and then signing in to the app is a dead end: the login
+ * succeeds, the session carries no workspace, and the app sends them straight back to the sign-in page
+ * with nothing to read. Half-finished signups leave exactly that account behind, so the repair belongs
+ * here rather than in a one-off fix for one person.
+ *
+ * Called on sign-in, so it can only ever add a workspace to a person who has none.
+ */
+export function ensureWorkspaceForUser(db, userId, { timezone = "Asia/Karachi" } = {}) {
+  const existing = membershipsFor(db, userId);
+  if (existing.length) return { created: false, orgId: existing[0].orgId };
+
+  const user = db.prepare("select id, email, name from users where id = ?").get(userId);
+  if (!user) {
+    const error = new Error("That account no longer exists.");
+    error.status = 401;
+    throw error;
+  }
+
+  const name = user.name?.trim() || suggestWorkspaceName(user.email);
+  const org = createOrganization(db, { name, ownerUserId: userId, timezone });
+  startFreePlan(db, org.orgId);
+
+  writeAudit(db, {
+    orgId: org.orgId,
+    actorUserId: userId,
+    action: "org.create_on_sign_in",
+    entity: "organization",
+    entityId: org.orgId,
+    detail: { name, reason: "signed in with no workspace" },
+  });
+
+  return { created: true, orgId: org.orgId };
+}
+
 export function startFreePlan(db, orgId, planId = "free", { now = Date.now() } = {}) {
   const plan = db.prepare("select * from plans where id = ?").get(planId);
   if (!plan) {

@@ -13,6 +13,7 @@ import {
   resolveIndustry,
   issueInvoice,
   outstandingInvoiceFor,
+  ensureWorkspaceForUser,
 } from "@/lib/types";
 import { SESSION_COOKIE } from "@/lib/config.mjs";
 import { LEAD_STAGES } from "@/lib/tenant.mjs";
@@ -24,7 +25,7 @@ import {
   tenantStore,
   createUser,
   authenticate,
-  createOrganization,
+  createOrganization, ensureWorkspaceForUser,
   membershipsFor,
   createSession,
   revokeSession,
@@ -128,7 +129,13 @@ export async function signInAction(form: FormData) {
     redirect("/login?error=That%20email%20and%20password%20do%20not%20match%20an%20account.");
   }
 
-  const memberships = membershipsFor(db(), result.user.id);
+  let memberships = membershipsFor(db(), result.user.id);
+  if (memberships.length === 0) {
+    // Signed in, but with no workspace, used to mean being sent back to this page with no explanation.
+    ensureWorkspaceForUser(db(), result.user.id);
+    memberships = membershipsFor(db(), result.user.id);
+  }
+
   const orgId = memberships.length === 1 ? memberships[0].orgId : null;
   const { token, expiresAt } = createSession(db(), { userId: result.user.id, orgId });
 

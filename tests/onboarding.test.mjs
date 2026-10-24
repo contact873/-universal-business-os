@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import { openTestDb, closeDb } from "../src/lib/db.mjs";
 import { seedPlans } from "./fixtures.mjs";
 import { createTrialAccount } from "../src/lib/onboarding.mjs";
-import { entitlementFor, membershipsFor } from "../src/lib/accounts.mjs";
+import {
+  createUser,
+  entitlementFor,
+  ensureWorkspaceForUser,
+  membershipsFor,
+  suggestWorkspaceName,
+} from "../src/lib/accounts.mjs";
 
 const db = () => seedPlans(openTestDb());
 
@@ -167,4 +173,37 @@ test("with no sender configured, the account is still created and the delivery s
   assert.equal(result.delivery.reason, "not_attempted");
 
   closeDb();
+});
+
+test("a person who signs in with no workspace is given one, not sent away", () => {
+  const db = seedPlans(openTestDb());
+  const user = createUser(db, { email: "contact@raschident.com", password: "a-long-enough-password" });
+
+  assert.equal(membershipsFor(db, user.userId).length, 0, "starts with nothing, as a half-finished signup leaves it");
+
+  const first = ensureWorkspaceForUser(db, user.userId);
+  assert.equal(first.created, true);
+
+  const memberships = membershipsFor(db, user.userId);
+  assert.equal(memberships.length, 1);
+  assert.equal(memberships[0].role, "owner", "they own the workspace they were given");
+  assert.equal(entitlementFor(db, first.orgId, "contacts").limit, 100, "and it is on the free plan");
+
+  const org = db.prepare("select name, timezone from organizations where id = ?").get(first.orgId);
+  assert.equal(org.name, "Raschident", "a contact address suggests the business, not the mailbox");
+  assert.equal(org.timezone, "Asia/Karachi");
+
+  const second = ensureWorkspaceForUser(db, user.userId);
+  assert.equal(second.created, false, "signing in again does not build a second workspace");
+  assert.equal(membershipsFor(db, user.userId).length, 1);
+
+  closeDb();
+});
+
+test("a workspace name is guessed from the address, and never left empty", () => {
+  assert.equal(suggestWorkspaceName("contact@raschident.com"), "Raschident");
+  assert.equal(suggestWorkspaceName("misbah.aff62@gmail.com"), "Misbah Aff62");
+  assert.equal(suggestWorkspaceName("hello@dental-labs.pk"), "Dental Labs");
+  assert.equal(suggestWorkspaceName(""), "My workspace");
+  assert.equal(suggestWorkspaceName("info@"), "My workspace");
 });
