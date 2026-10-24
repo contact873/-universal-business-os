@@ -42,6 +42,12 @@ export function providerStatus(provider, env = process.env) {
 
 export function bankDetails(env = process.env) {
   return {
+    // Who is being paid matters more than where the money goes. For a sole proprietorship the account is
+    // held in the owner's own name, which is the business, so the invoice says so rather than leaving a
+    // payer's accounts department to wonder why the names differ.
+    legalName: env.BUSINESS_LEGAL_NAME?.trim() || "Raschid Enterprises",
+    structure: env.BUSINESS_STRUCTURE?.trim() || "sole proprietorship",
+    ntn: env.BUSINESS_NTN?.trim() || null,
     bankName: env.BANK_NAME?.trim() || null,
     accountTitle: env.BANK_ACCOUNT_TITLE?.trim() || null,
     accountNumber: env.BANK_ACCOUNT_NUMBER?.trim() || null,

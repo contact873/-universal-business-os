@@ -176,3 +176,31 @@ test("moving onto a paid plan activates that plan and its limits", () => {
 
   closeDb();
 });
+
+test("the payer is told who they are paying, and in whose name", () => {
+  const bank = bankDetails({
+    BANK_NAME: "Meezan Bank",
+    BANK_ACCOUNT_TITLE: "Owner Name As The Bank Holds It",
+    BANK_IBAN: "PK00MEZN0000000000000000",
+  });
+
+  assert.equal(bank.legalName, "Raschid Enterprises", "the registered business, not a brand name");
+  assert.equal(bank.structure, "sole proprietorship");
+  assert.equal(bank.ntn, null, "no tax number is invented when none is set");
+  assert.equal(bank.configured, true);
+
+  const taxed = bankDetails({
+    BANK_NAME: "Meezan Bank",
+    BANK_ACCOUNT_TITLE: "Owner Name",
+    BANK_IBAN: "PK00MEZN0000000000000000",
+    BUSINESS_NTN: "1234567-8",
+  });
+  assert.equal(taxed.ntn, "1234567-8");
+
+  const other = bankDetails({
+    BUSINESS_LEGAL_NAME: "Another Trading Name",
+    BUSINESS_STRUCTURE: "private limited",
+  });
+  assert.equal(other.legalName, "Another Trading Name");
+  assert.equal(other.structure, "private limited");
+});

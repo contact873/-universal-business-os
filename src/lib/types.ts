@@ -596,6 +596,9 @@ export function outstandingInvoiceFor(db: unknown, orgId: string): InvoiceRow | 
 }
 
 export type BankDetails = {
+  legalName: string;
+  structure: string;
+  ntn: string | null;
   bankName: string | null;
   accountTitle: string | null;
   accountNumber: string | null;

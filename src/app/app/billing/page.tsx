@@ -145,6 +145,13 @@ export default async function Billing({
               <table>
                 <tbody>
                   <tr>
+                    <th scope="row">Payable to</th>
+                    <td>
+                      {bank.legalName}
+                      {bank.structure ? <span className="muted"> ({bank.structure})</span> : null}
+                    </td>
+                  </tr>
+                  <tr>
                     <th scope="row">Bank</th>
                     <td>{bank.bankName}</td>
                   </tr>
@@ -172,6 +179,14 @@ export default async function Billing({
                       <td>{bank.branch}</td>
                     </tr>
                   ) : null}
+                  {bank.ntn ? (
+                    <tr>
+                      <th scope="row">Tax number</th>
+                      <td>
+                        <code>{bank.ntn}</code>
+                      </td>
+                    </tr>
+                  ) : null}
                   <tr>
                     <th scope="row">Reference</th>
                     <td>
@@ -186,6 +201,14 @@ export default async function Billing({
                 from here. Write to contact@raschident.com and the details will be sent directly.
               </p>
             )}
+
+            {bank.configured && bank.structure.includes("sole") ? (
+              <p className="small muted">
+                The account is in the owner&rsquo;s own name, which is normal for a sole proprietorship: the
+                account name is the business name. If your bank queries the difference, this invoice is the
+                explanation.
+              </p>
+            ) : null}
 
             <p className="small muted" style={{ marginBottom: 0 }}>
               Quote the reference with the transfer. Confirmation is done by hand, usually within one
