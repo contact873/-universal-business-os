@@ -65,12 +65,13 @@ test("a free workspace is refused work beyond its contact allowance", async () =
   closeDb();
 });
 
-test("a free workspace is limited to one seat", async () => {
+test("a free workspace includes the owner and one colleague", async () => {
   const db = seedPlans(openTestDb());
   const { orgId } = await createFreeAccount(db, FREE, { sendEmail: null });
 
-  assert.equal(withinLimit(db, orgId, "seats", { current: 0 }).allowed, true);
-  assert.equal(withinLimit(db, orgId, "seats", { current: 1 }).allowed, false);
+  assert.equal(withinLimit(db, orgId, "seats").limit, 2);
+  assert.equal(withinLimit(db, orgId, "seats", { current: 1 }).allowed, true, "one colleague can join");
+  assert.equal(withinLimit(db, orgId, "seats", { current: 2 }).allowed, false, "a third person is what the paid tiers sell");
 
   closeDb();
 });
@@ -85,7 +86,7 @@ test("upgrading replaces the free plan rather than stacking a second subscriptio
   startFreePlan(db, orgId);
 
   // The upgrade path the provider will drive: activate Professional and let the sync move the
-  // entitlements from 100 contacts to 5,000, and from one seat to ten.
+  // entitlements from 100 contacts to 5,000, and from two seats to ten.
   db.prepare(
     "update subscriptions set status = 'active', plan_id = 'professional', period_end = ? where organization_id = ?",
   ).run(new Date(Date.now() + 30 * 86_400_000).toISOString(), orgId);

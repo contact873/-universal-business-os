@@ -157,12 +157,17 @@ test("seats count people who have been invited but not yet joined", () => {
   closeDb();
 });
 
-test("the free plan's single seat is already taken by its owner", () => {
+test("the free plan allows one colleague, and then stops", () => {
   const { db, orgId } = workspace({ plan: "free" });
 
-  const seats = withinLimit(db, orgId, "seats", { current: 1 + pendingInvitationCount(db, orgId) });
-  assert.equal(seats.limit, 1);
-  assert.equal(seats.allowed, false, "a second person is what Professional sells");
+  const first = withinLimit(db, orgId, "seats", { current: 1 + pendingInvitationCount(db, orgId) });
+  assert.equal(first.limit, 2);
+  assert.equal(first.allowed, true, "the owner plus one colleague is what free includes");
+
+  createInvitation(db, orgId, { email: "colleague@example.test", role: "staff" });
+
+  const second = withinLimit(db, orgId, "seats", { current: 1 + pendingInvitationCount(db, orgId) });
+  assert.equal(second.allowed, false, "a third person is what the paid tiers sell");
 
   closeDb();
 });
@@ -178,7 +183,7 @@ test("cancelling an invitation frees the seat and kills the link", () => {
   assert.equal(revoked.email, "one@example.test");
 
   // The seat is free again, which is the entire point: an undeliverable invitation used to hold it
-  // until it expired, locking a one seat workspace out of inviting anybody.
+  // until it expired, locking a two seat workspace out of inviting anybody.
   assert.equal(pendingInvitationCount(db, orgId), 0);
 
   // The link stops working, because the row is gone.

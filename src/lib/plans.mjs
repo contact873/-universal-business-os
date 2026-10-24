@@ -38,7 +38,7 @@ export const PLAN_DEFINITIONS = [
     // Free forever, and deliberately limited so it is useful rather than a demo. A business can
     // run real enquiries through it, hit the ceiling in a busy month, and know exactly what the
     // next tier buys. It never expires, so it never needs a card and can never produce a chargeback.
-    limits: { contacts: 100, seats: 1, "assistant-minutes": 0, "sms-messages": 100 },
+    limits: { contacts: 100, seats: 2, "assistant-minutes": 0, "sms-messages": 100 },
   },
   {
     id: "starter",
