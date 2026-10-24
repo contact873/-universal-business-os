@@ -201,3 +201,80 @@ issues.
 - **Automatic renewals**: the invoice path is manual by design
 - **Email**: without a Resend key, accounts are created and no email is sent, which the API reports
   as `emailed: false`
+
+---
+
+## Part 7: what converts without a person, and what must not
+
+The lifecycle job (`src/lib/lifecycle.mjs`, called from `/api/cron/lifecycle`) handles the mechanical
+half. It runs on a schedule, is idempotent by what an action is about rather than when it ran, and
+writes an audit entry for everything it does.
+
+### Automated today
+
+| Step | How |
+|---|---|
+| Enquiry arrives | Stored, scored, and routed by the API; a handover pack when it needs a person |
+| Free sign-up | Workspace created, subscriber registered, limits applied |
+| Upgrade request | Invoice issued at the catalogue price, with the bank details and a reference |
+| Renewal on bank transfer | One invoice per period, however often the job runs |
+| Trial that ended without a card | Falls back to the free plan, keeping the workspace and its data |
+| Payment not received | Grace period, then the free plan rather than a silent lapse |
+| Win-back | Offered once, only to subscribers who consented, a month after downgrading |
+
+### Automated the moment a provider exists
+
+| Step | What changes |
+|---|---|
+| Card capture | The provider's hosted page; no card data touches this server |
+| The charge at trial end | The provider charges and sends `invoice.paid`, which activates the plan |
+| Failed payment | The provider retries; `invoice.payment_failed` moves the subscription to `past_due` |
+| Renewal on card | The provider charges at period end; the invoice path is skipped |
+| Cancellation | The provider ends the period; the workspace drops to free at that date |
+
+Nothing in the database, the plans, the entitlements or the pages changes for any of this. That is what
+`applyEvent` was built for: the provider is a source of verified events, and the state machine already
+handles them.
+
+### Deliberately human
+
+| Step | Why |
+|---|---|
+| Confirming a bank transfer | No bank feed exists, so somebody looks at the account. Pretending otherwise grants months on hope |
+| Complaints and refunds | Judgement with liability; the agent acknowledges and routes, and does not decide |
+| Medical, legal and pricing exceptions | The refusal list, written by the client |
+| Chargebacks | Evidence and a deadline; a person submits it |
+| Getting a merchant account | Documents, KYC and approval, whoever you choose |
+
+### The adapter contract
+
+When Safepay, PayFast or Stripe arrives, only two functions are new:
+
+1. `createCheckout({ orgId, planId, email })` returns a URL on the provider's own page, with the
+   organisation id in the provider's metadata so the webhook can find the workspace.
+2. `parseWebhook(rawBody, headers)` verifies the signature and returns the normalised event shape
+   `applyEvent` already accepts.
+
+Then set `PAYMENT_PROVIDER_KEY` and the provider's webhook secret, point the provider at
+`/api/webhooks/billing`, and the billing page switches from "card payments are not switched on yet" to a
+real button without a deploy of anything else.
+
+### Scheduling it
+
+The endpoint needs a secret before it will run at all, so set your own and keep it:
+
+```bash
+SECRET=$(openssl rand -hex 32)
+echo "$SECRET"                                  # copy this into the cron entry
+fly secrets set LIFECYCLE_SECRET="$SECRET"
+```
+
+Then, from cPanel's Cron Jobs, every fifteen minutes:
+
+```
+*/15 * * * * curl -s -X POST https://relco-business-os.fly.dev/api/cron/lifecycle -H "x-lifecycle-secret: SECRET"
+```
+
+Check it once by hand and read the summary it returns. "nothing to do" is the correct answer on a quiet
+afternoon, and it is worth knowing what that looks like before you need to tell the difference between
+quiet and broken.
