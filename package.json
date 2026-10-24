@@ -17,7 +17,9 @@
     "verify:http": "node scripts/verify.mjs",
     "verify:isolation": "NODE_ENV=production node scripts/prove-isolation.mjs",
     "verify:all": "node scripts/drift.mjs --selftest && npm run drift && npm test",
-    "preflight": "node scripts/preflight-skill.mjs . --env"
+    "preflight": "node scripts/preflight-skill.mjs . --env",
+    "audit:deps": "node scripts/audit.mjs",
+    "sbom": "npm sbom --sbom-format=cyclonedx > sbom.cdx.json"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -295,6 +295,9 @@ export type LimitCheck = {
   limit: number | null;
   current: number | null;
   reason: string;
+  // Metered allowances reset on the first of the month; standing counts do not. The interface needs
+  // to know which it is showing, or it offers a reset that never comes.
+  resets?: boolean;
 };
 
 export function withinLimit(

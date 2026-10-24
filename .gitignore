@@ -17,3 +17,6 @@ data/
 !.env.example
 
 .DS_Store
+
+# Generated on demand, not committed: an SBOM is a fact about a build, not source.
+sbom.cdx.json
