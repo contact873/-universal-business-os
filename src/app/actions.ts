@@ -13,7 +13,6 @@ import {
   resolveIndustry,
   issueInvoice,
   outstandingInvoiceFor,
-  ensureWorkspaceForUser,
 } from "@/lib/types";
 import { SESSION_COOKIE } from "@/lib/config.mjs";
 import { LEAD_STAGES } from "@/lib/tenant.mjs";
