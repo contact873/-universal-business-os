@@ -55,6 +55,7 @@ declare
     'availability',
     'appointments',
     'invoices',
+    'lifecycle_actions',
     'subscribers',
     'subscriber_offers'
   ];
