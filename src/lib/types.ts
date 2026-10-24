@@ -128,10 +128,11 @@ export type PlanDisplay = {
   liveInDays: number | null;
   currency: string;
   limits: Record<string, number>;
+  retired?: boolean;
 };
 
-export function planForDisplay(db: unknown): PlanDisplay[] {
-  return planForDisplayJs(db as never) as PlanDisplay[];
+export function planForDisplay(db: unknown, options?: { includeRetired?: boolean }): PlanDisplay[] {
+  return planForDisplayJs(db as never, options as never) as PlanDisplay[];
 }
 import {
   zonedToUtc as zonedToUtcJs,

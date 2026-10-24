@@ -47,16 +47,21 @@ test("the catalogue is written to the database with its terms intact", () => {
   const db = openTestDb();
   ensurePlans(db);
 
+  // What can be bought today. Starter is retired, so it is not offered, and free is the entry.
   const rows = planForDisplay(db);
-  assert.equal(rows.length, PLAN_DEFINITIONS.length);
-  assert.equal(rows[0].id, "free", "sorted cheapest first, and free is the cheapest");
+  assert.deepEqual(rows.map((row) => row.id), ["free", "professional", "business"]);
   assert.equal(rows[0].monthly, 0);
   assert.equal(rows[0].setup, 0);
-  assert.equal(rows[1].id, "starter");
+  assert.equal(rows[1].id, "professional", "the paid entry is Professional");
   assert.equal(typeof rows[1].monthly, "number");
   assert.equal(typeof rows[1].setup, "number");
   assert.ok(rows[1].liveInDays >= 1);
   assert.ok(Object.keys(rows[0].limits).length > 0, "limits must survive the JSON round trip");
+
+  // Retired, not erased: an old invoice may name it, so it must still resolve.
+  const everyPlan = planForDisplay(db, { includeRetired: true });
+  assert.equal(everyPlan.length, PLAN_DEFINITIONS.length);
+  assert.equal(everyPlan.some((row) => row.id === "starter" && row.retired), true);
 
   closeDb();
 });

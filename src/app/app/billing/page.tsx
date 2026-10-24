@@ -38,6 +38,9 @@ export default async function Billing({
     .get(session.orgId) as Row | undefined;
 
   const plans = planForDisplay(db);
+  // Names come from every plan, including retired ones: an outstanding invoice may be for a plan that
+  // is no longer sold, and it should still say which plan it was.
+  const allPlans = planForDisplay(db, { includeRetired: true });
   const invoices = invoicesFor(db, session.orgId);
   const outstanding = outstandingInvoiceFor(db, session.orgId);
   const bank = bankDetails();
@@ -48,7 +51,7 @@ export default async function Billing({
   const mayChange = can(session.role, "billing:write");
 
   const money = (minor: number, currency: string) => `${currency} ${(minor / 100).toFixed(2)}`;
-  const planName = (id: string) => plans.find((plan) => plan.id === id)?.name ?? id;
+  const planName = (id: string) => allPlans.find((plan) => plan.id === id)?.name ?? id;
 
   return (
     <section className="wrap">

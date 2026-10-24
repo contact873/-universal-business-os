@@ -49,7 +49,13 @@ export const PLAN_DEFINITIONS = [
     currency: "USD",
     exponent: 2,
     interval: "month",
-    // The wedge: missed-call text-back and a customer database. No voice, no assistant minutes.
+    // Retired once the free plan began including two people: at that point Starter differed only in
+    // volume, and a paid tier whose only argument is size is a harder sale than no tier at all.
+    //
+    // It is kept here rather than deleted, because an invoice, a report or a support ticket from last
+    // month may reference it and a missing row makes those unreadable. Retired means not selectable,
+    // not erased. Existing workspaces on it keep working.
+    retired: true,
     limits: { contacts: 500, seats: 2, "assistant-minutes": 0, "sms-messages": 500 },
   },
   {
@@ -115,15 +121,24 @@ export function ensurePlans(db) {
 }
 
 /** A plan rendered for a pricing page: monthly, setup, live-in, and the limits in plain words. */
-export function planForDisplay(db) {
+// What can be chosen today. A retired plan still exists in the database so old references resolve,
+// but it is never offered: offering a price you have withdrawn is how a customer ends up on a plan
+// nobody supports.
+export const SELECTABLE_PLANS = PLAN_DEFINITIONS.filter((plan) => !plan.retired).map((plan) => plan.id);
+const RETIRED = new Set(PLAN_DEFINITIONS.filter((plan) => plan.retired).map((plan) => plan.id));
+
+export function planForDisplay(db, { includeRetired = false } = {}) {
   const rows = db.prepare("select * from plans order by price_minor asc").all();
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    monthly: row.price_minor / 100,
-    setup: row.setup_minor === null ? null : row.setup_minor / 100,
-    liveInDays: row.live_in_days,
-    currency: row.currency,
-    limits: row.limits_json ? JSON.parse(row.limits_json) : {},
-  }));
+  return rows
+    .filter((row) => includeRetired || !RETIRED.has(row.id))
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      monthly: row.price_minor / 100,
+      setup: row.setup_minor === null ? null : row.setup_minor / 100,
+      liveInDays: row.live_in_days,
+      currency: row.currency,
+      limits: row.limits_json ? JSON.parse(row.limits_json) : {},
+      retired: RETIRED.has(row.id),
+    }));
 }
