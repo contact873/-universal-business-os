@@ -2,6 +2,7 @@ import "./setup.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openTestDb, closeDb } from "../src/lib/db.mjs";
+import { writeAudit } from "../src/lib/audit.mjs";
 import { seedPlans } from "./fixtures.mjs";
 import { createTrialAccount } from "../src/lib/onboarding.mjs";
 import {
@@ -259,6 +260,35 @@ test("limits follow the catalogue when it changes after a workspace exists", () 
     .prepare("select count(*) as n from audit_logs where organization_id = ? and action = 'entitlement.reconciled'")
     .get(org.orgId).n;
   assert.equal(audit, 1, "the change is recorded once, with the reason implicit in the action");
+
+  closeDb();
+});
+
+test("an audit entry keeps what it is given, and refuses a field it does not know", () => {
+  const db = seedPlans(openTestDb());
+  const user = createUser(db, { email: "owner@audit.test", password: "a-long-enough-password" });
+  const org = createOrganization(db, { name: "Audit Workspace", ownerUserId: user.userId, plan: null });
+
+  const auditId = writeAudit(db, {
+    orgId: org.orgId,
+    actorUserId: user.userId,
+    action: "test.limit_changed",
+    entity: "entitlement",
+    entityId: "seats",
+    meta: { from: 1, to: 2, password: "must-not-be-stored" },
+  });
+
+  const row = db.prepare("select * from audit_logs where id = ?").get(auditId);
+  const meta = JSON.parse(row.meta_json);
+  assert.equal(meta.from, 1, "what changed is recoverable");
+  assert.equal(meta.to, 2);
+  assert.equal(meta.password, "[redacted]", "and a credential passed by accident is not kept");
+
+  assert.throws(
+    () => writeAudit(db, { orgId: org.orgId, action: "test.bad", detail: { from: 1 } }),
+    /does not understand detail/,
+    "the near-miss that reads correctly and stores nothing is refused",
+  );
 
   closeDb();
 });

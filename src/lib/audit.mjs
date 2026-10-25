@@ -23,7 +23,18 @@ export function redact(value, depth = 0) {
   return out;
 }
 
+const KNOWN_KEYS = new Set(["orgId", "actorUserId", "action", "entity", "entityId", "meta"]);
+
 export function writeAudit(db, entry) {
+  // An audit row that quietly loses its detail is worse than no row, because it looks like evidence.
+  // The mistake worth naming is `detail`, which reads correctly and stores nothing.
+  const unknown = Object.keys(entry).filter((key) => !KNOWN_KEYS.has(key));
+  if (unknown.length) {
+    throw new Error(
+      `writeAudit does not understand ${unknown.join(", ")}. It takes: ${[...KNOWN_KEYS].join(", ")}.`,
+    );
+  }
+
   const auditId = id("aud");
   db.prepare(
     `insert into audit_logs

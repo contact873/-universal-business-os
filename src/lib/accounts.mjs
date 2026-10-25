@@ -236,7 +236,7 @@ export function ensureWorkspaceForUser(db, userId, { timezone = "Asia/Karachi" }
     action: "org.create_on_sign_in",
     entity: "organization",
     entityId: org.orgId,
-    detail: { name, reason: "signed in with no workspace" },
+    meta: { name, reason: "signed in with no workspace" },
   });
 
   return { created: true, orgId: org.orgId };
@@ -353,7 +353,7 @@ export function reconcileEntitlementsToPlan(db, { now = Date.now() } = {}) {
         action: "entitlement.reconciled",
         entity: "entitlement",
         entityId: `${row.orgId}:${feature}`,
-        detail: { plan: row.planId, from: current.limit, to: wanted },
+        meta: { plan: row.planId, from: current.limit, to: wanted },
       });
     }
   }
