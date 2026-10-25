@@ -7,10 +7,13 @@ import { createTrialAccount } from "../src/lib/onboarding.mjs";
 import {
   authenticate,
   changePassword,
+  createOrganization,
   createUser,
   entitlementFor,
   ensureWorkspaceForUser,
   membershipsFor,
+  reconcileEntitlementsToPlan,
+  startFreePlan,
   suggestWorkspaceName,
 } from "../src/lib/accounts.mjs";
 
@@ -230,6 +233,32 @@ test("a password can be changed, and the old one stops working", () => {
   assert.equal(authenticate(db, "owner@clinic.test", "a-brand-new-password").ok, true);
 
   assert.equal(changePassword(db, "usr_does_not_exist", "x", "a-brand-new-password").ok, false);
+
+  closeDb();
+});
+
+test("limits follow the catalogue when it changes after a workspace exists", () => {
+  const db = seedPlans(openTestDb());
+  const user = createUser(db, { email: "owner@oldworkspace.test", password: "a-long-enough-password" });
+  const org = createOrganization(db, { name: "Old Workspace", ownerUserId: user.userId, plan: null });
+  startFreePlan(db, org.orgId);
+
+  // What the workspace held before the free plan moved from one seat to two.
+  db.prepare("update entitlements set limit_value = ? where organization_id = ? and feature = ?").run(1, org.orgId, "seats");
+  assert.equal(entitlementFor(db, org.orgId, "seats").limit, 1);
+
+  const result = reconcileEntitlementsToPlan(db);
+  assert.equal(entitlementFor(db, org.orgId, "seats").limit, 2, "the catalogue wins over a stale row");
+  assert.equal(result.changes.some((change) => change.feature === "seats"), true);
+  assert.equal(entitlementFor(db, org.orgId, "contacts").limit, 100, "the other limits are untouched");
+
+  const second = reconcileEntitlementsToPlan(db);
+  assert.equal(second.changes.length, 0, "and it settles once everything agrees");
+
+  const audit = db
+    .prepare("select count(*) as n from audit_logs where organization_id = ? and action = 'entitlement.reconciled'")
+    .get(org.orgId).n;
+  assert.equal(audit, 1, "the change is recorded once, with the reason implicit in the action");
 
   closeDb();
 });

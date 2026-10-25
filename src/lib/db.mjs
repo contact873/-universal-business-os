@@ -10,6 +10,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { DATABASE_URL, DATA_DIR, IS_SERVERLESS, assertServerConfig } from "./config.mjs";
 import { apply, currentVersion } from "./migrate-core.mjs";
+import { reconcileEntitlementsToPlan } from "./accounts.mjs";
 
 let handle = null;
 
@@ -56,6 +57,18 @@ export function getDb() {
   } catch (error) {
     db.close();
     throw new Error(`Refusing to start: the database could not be migrated. ${error.message}`);
+  }
+
+  // Limits live in rows, and the catalogue can move after those rows were written. Reconciling here
+  // means a price or allowance change reaches workspaces that already exist, which is the difference
+  // between correcting the catalogue and only correcting the future.
+  try {
+    const { workspaces, changes } = reconcileEntitlementsToPlan(db);
+    if (changes.length) {
+      console.log(`[db] reconciled ${changes.length} entitlement(s) across ${workspaces} workspace(s)`);
+    }
+  } catch (error) {
+    console.log(`[db] entitlement reconciliation skipped: ${error.message}`);
   }
 
   handle = db;

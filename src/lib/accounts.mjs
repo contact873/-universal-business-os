@@ -309,6 +309,57 @@ export function grant(db, orgId, feature, limitValue = null) {
   return { ok: true };
 }
 
+/**
+ * Brings every workspace's limits into line with the plan catalogue.
+ *
+ * Limits are granted once, when a plan starts, and the catalogue can change afterwards. When the free
+ * plan moved from one seat to two, every workspace created before the change kept the old row: the
+ * website promised two people, the dashboard showed two, and the invite button refused the second one.
+ * Nothing was broken enough to notice and everything was wrong enough to matter.
+ *
+ * Reducing a limit never deletes anything: reaching one refuses new records, so a workspace over a
+ * lowered limit keeps what it has. That is what makes running this on every start safe.
+ */
+export function reconcileEntitlementsToPlan(db, { now = Date.now() } = {}) {
+  const live = db
+    .prepare(
+      `select s.organization_id as orgId, s.plan_id as planId, p.limits_json as limits
+         from subscriptions s
+         join plans p on p.id = s.plan_id
+        where s.plan_id is not null
+          and s.created_at = (select max(x.created_at) from subscriptions x where x.organization_id = s.organization_id)`,
+    )
+    .all();
+
+  const changes = [];
+  for (const row of live) {
+    let limits = {};
+    try {
+      limits = row.limits ? JSON.parse(row.limits) : {};
+    } catch {
+      continue;
+    }
+
+    for (const [feature, value] of Object.entries(limits)) {
+      const wanted = typeof value === "number" ? value : null;
+      const current = entitlementFor(db, row.orgId, feature);
+      if (current.limit === wanted) continue;
+
+      grant(db, row.orgId, feature, wanted);
+      changes.push({ orgId: row.orgId, planId: row.planId, feature, from: current.limit, to: wanted });
+      writeAudit(db, {
+        orgId: row.orgId,
+        actorUserId: null,
+        action: "entitlement.reconciled",
+        entity: "entitlement",
+        entityId: `${row.orgId}:${feature}`,
+        detail: { plan: row.planId, from: current.limit, to: wanted },
+      });
+    }
+  }
+  return { workspaces: live.length, changes };
+}
+
 export function entitlementFor(db, orgId, feature) {
   const row = db
     .prepare("select limit_value from entitlements where organization_id = ? and feature = ?")
