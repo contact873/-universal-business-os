@@ -2,7 +2,12 @@ import { requireWorkspace } from "@/lib/session-server";
 import { getDb } from "@/lib/db.mjs";
 import { auditTrail, listInvitations, type AuditRow } from "@/lib/types";
 import { can } from "@/lib/roles.mjs";
-import { inviteMemberAction, revokeInvitationAction, updateWorkspaceAction } from "@/app/actions";
+import {
+  changePasswordAction,
+  inviteMemberAction,
+  revokeInvitationAction,
+  updateWorkspaceAction,
+} from "@/app/actions";
 
 type Member = { email: string; name: string | null; role: string };
 
@@ -63,7 +68,12 @@ export default async function Settings({
           {error}
         </p>
       ) : null}
-      {saved ? (
+      {saved === "password" ? (
+        <p className="notice ok" role="status">
+          Password changed. Every other device has been signed out, as it should be: if somebody else had
+          your password, they no longer do.
+        </p>
+      ) : saved ? (
         <p className="notice ok" role="status">
           Workspace saved.
         </p>
@@ -150,6 +160,28 @@ export default async function Settings({
               />
             </form>
           ) : null}
+
+          <h3 style={{ marginTop: "var(--s5)" }}>Your password</h3>
+          <form action={changePasswordAction}>
+            <div className="field">
+              <label htmlFor="p-current">Current password</label>
+              <input id="p-current" name="currentPassword" type="password" autoComplete="current-password" required />
+            </div>
+            <div className="form-row">
+              <div className="field">
+                <label htmlFor="p-new">New password</label>
+                <input id="p-new" name="newPassword" type="password" autoComplete="new-password" minLength={10} required />
+              </div>
+              <div className="field">
+                <label htmlFor="p-again">New password again</label>
+                <input id="p-again" name="confirmPassword" type="password" autoComplete="new-password" minLength={10} required />
+              </div>
+            </div>
+            <p className="small muted">
+              At least ten characters. Changing it signs out every other device.
+            </p>
+            <button type="submit">Change password</button>
+          </form>
 
           <h3 style={{ marginTop: "var(--s5)" }}>Intake key</h3>
           <p className="muted small">

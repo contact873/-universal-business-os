@@ -10,6 +10,7 @@ import {
   createUser as createUserJs,
   authenticate as authenticateJs,
   createOrganization as createOrganizationJs,
+  changePassword as changePasswordJs,
   ensureWorkspaceForUser as ensureWorkspaceForUserJs,
   suggestWorkspaceName as suggestWorkspaceNameJs,
   membershipsFor as membershipsForJs,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/accounts.mjs";
 import {
   createSession as createSessionJs,
+  revokeAllSessionsForUser as revokeAllSessionsForUserJs,
   revokeSession as revokeSessionJs,
   switchOrg as switchOrgJs,
 } from "@/lib/sessions.mjs";
@@ -495,6 +497,19 @@ export function createSession(
 ): SessionToken {
   return createSessionJs(db as never, input as never) as SessionToken;
 }
+export function revokeAllSessionsForUser(db: unknown, userId: string): void {
+  revokeAllSessionsForUserJs(db as never, userId);
+}
+
+export function changePassword(
+  db: unknown,
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+): { ok: boolean; reason?: string } {
+  return changePasswordJs(db as never, userId, currentPassword, newPassword) as { ok: boolean; reason?: string };
+}
+
 
 export function revokeSession(db: unknown, token: string): number {
   return revokeSessionJs(db as never, token) as number;

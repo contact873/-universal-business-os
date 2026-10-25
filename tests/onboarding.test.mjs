@@ -5,6 +5,8 @@ import { openTestDb, closeDb } from "../src/lib/db.mjs";
 import { seedPlans } from "./fixtures.mjs";
 import { createTrialAccount } from "../src/lib/onboarding.mjs";
 import {
+  authenticate,
+  changePassword,
   createUser,
   entitlementFor,
   ensureWorkspaceForUser,
@@ -206,4 +208,28 @@ test("a workspace name is guessed from the address, and never left empty", () =>
   assert.equal(suggestWorkspaceName("hello@dental-labs.pk"), "Dental Labs");
   assert.equal(suggestWorkspaceName(""), "My workspace");
   assert.equal(suggestWorkspaceName("info@"), "My workspace");
+});
+
+test("a password can be changed, and the old one stops working", () => {
+  const db = seedPlans(openTestDb());
+  const user = createUser(db, { email: "owner@clinic.test", password: "the-first-password" });
+  assert.equal(authenticate(db, "owner@clinic.test", "the-first-password").ok, true);
+
+  const wrong = changePassword(db, user.userId, "not-the-password", "a-brand-new-password");
+  assert.equal(wrong.ok, false);
+  assert.equal(wrong.reason, "invalid_password");
+  assert.equal(
+    authenticate(db, "owner@clinic.test", "a-brand-new-password").ok,
+    false,
+    "a wrong current password changes nothing at all",
+  );
+
+  const changed = changePassword(db, user.userId, "the-first-password", "a-brand-new-password");
+  assert.equal(changed.ok, true);
+  assert.equal(authenticate(db, "owner@clinic.test", "the-first-password").ok, false, "the old one is dead");
+  assert.equal(authenticate(db, "owner@clinic.test", "a-brand-new-password").ok, true);
+
+  assert.equal(changePassword(db, "usr_does_not_exist", "x", "a-brand-new-password").ok, false);
+
+  closeDb();
 });

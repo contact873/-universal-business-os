@@ -15,6 +15,7 @@ import {
   outstandingInvoiceFor,
 } from "@/lib/types";
 import { SESSION_COOKIE } from "@/lib/config.mjs";
+import { MIN_PASSWORD_LENGTH } from "@/lib/passwords.mjs";
 import { LEAD_STAGES } from "@/lib/tenant.mjs";
 import { assertCan, can } from "@/lib/roles.mjs";
 import { writeAudit } from "@/lib/audit.mjs";
@@ -24,7 +25,7 @@ import {
   tenantStore,
   createUser,
   authenticate,
-  createOrganization, ensureWorkspaceForUser,
+  createOrganization, ensureWorkspaceForUser, changePassword, revokeAllSessionsForUser,
   membershipsFor,
   createSession,
   revokeSession,
@@ -140,6 +141,53 @@ export async function signInAction(form: FormData) {
 
   await setSessionCookie(token, expiresAt);
   redirect(orgId ? "/app" : memberships.length ? "/app/choose" : "/app");
+}
+
+/**
+ * Changing your own password.
+ *
+ * Every other session is ended, because the reason somebody changes a password is usually that another
+ * person may have it; leaving those sessions alive would make the change decorative. The session in this
+ * browser is rebuilt immediately afterwards so the person is not thrown out of the page they are on.
+ */
+export async function changePasswordAction(form: FormData) {
+  const session = await requireWorkspace();
+
+  const currentPassword = field(form, "currentPassword");
+  const newPassword = field(form, "newPassword");
+  const again = field(form, "confirmPassword");
+
+  if (newPassword.length < MIN_PASSWORD_LENGTH) {
+    redirect(
+      `/app/settings?error=${message(`A password needs at least ${MIN_PASSWORD_LENGTH} characters, because shorter ones are guessed.`)}`,
+    );
+  }
+  if (newPassword !== again) {
+    redirect(`/app/settings?error=${message("The two new passwords do not match.")}`);
+  }
+  if (newPassword === currentPassword) {
+    redirect(`/app/settings?error=${message("That is the password you already have.")}`);
+  }
+
+  const result = changePassword(db(), session.user.id, currentPassword, newPassword);
+  if (!result.ok) {
+    // One message for a wrong password or an account that vanished: neither should confirm anything.
+    redirect(`/app/settings?error=${message("That is not your current password.")}`);
+  }
+
+  revokeAllSessionsForUser(db(), session.user.id);
+  const fresh = createSession(db(), { userId: session.user.id, orgId: session.orgId });
+  await setSessionCookie(fresh.token, fresh.expiresAt);
+
+  writeAudit(db(), {
+    orgId: session.orgId,
+    actorUserId: session.user.id,
+    action: "user.password_changed",
+    entity: "user",
+    entityId: session.user.id,
+  });
+
+  redirect("/app/settings?saved=password");
 }
 
 export async function signOutAction() {
