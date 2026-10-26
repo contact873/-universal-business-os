@@ -89,3 +89,17 @@ store for a day.
 Nothing about the website or the application depends on this. The form posts to
 `https://relco-business-os.fly.dev/api/trial`, which works today. The only things waiting on the
 hostname are the tidier URL and outbound customer email.
+
+## The origin address, confirmed 25 October 2026
+
+```
+raschident.com        origin  158.106.138.119   (cPanel, LiteSpeed, /home/raschide)
+```
+
+This is the value behind the Cloudflare proxy, so it is invisible from outside; it was read from the
+cPanel sidebar and then verified by requesting it directly with `Host: connect.raschident.com`, which
+answered 200 over HTTP and 200 over HTTPS with a valid certificate.
+
+It matters for two records in the new zone: `connect` and `mail` must both point at it, both proxied.
+It also settles the SSL mode: the origin has a valid certificate, so Full (strict) is correct and
+Flexible is not needed anywhere.

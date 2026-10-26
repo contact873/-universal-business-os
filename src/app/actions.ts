@@ -259,6 +259,14 @@ export async function moveStageAction(form: FormData) {
     redirect(`/app/leads?error=${message("Unknown stage.")}`);
   }
 
+  // The dropdown opens on the stage the lead is already in, so pressing the button without choosing
+  // anything is the easiest thing in the world to do. Succeeding silently looks exactly like a broken
+  // button, so this path says what happened instead.
+  const before = tenantStore().getLead(session.orgId, leadId);
+  if (before && before.stage === stage) {
+    redirect(`/app/leads?same=${stage}&leadId=${leadId}`);
+  }
+
   try {
     const changed = tenantStore().updateLeadStage(session.orgId, leadId, stage, {
       role: session.role,
@@ -271,7 +279,7 @@ export async function moveStageAction(form: FormData) {
     redirect(`/app/leads?error=${message((error as Error).message)}`);
   }
 
-  redirect("/app/leads");
+  redirect(`/app/leads?moved=${stage}&leadId=${leadId}`);
 }
 
 export async function addNoteAction(form: FormData) {

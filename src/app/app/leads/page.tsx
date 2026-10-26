@@ -7,9 +7,15 @@ import { moveStageAction, addNoteAction } from "@/app/actions";
 export default async function Leads({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; noted?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    noted?: string;
+    moved?: string;
+    same?: string;
+    leadId?: string;
+  }>;
 }) {
-  const { error, noted } = await searchParams;
+  const { error, noted, moved, same, leadId: movedLeadId } = await searchParams;
   const session = await requireWorkspace();
   const store = tenantStore();
   const leads = store.listLeads(session.orgId, { limit: 100 });
@@ -21,6 +27,17 @@ export default async function Leads({
       {error ? (
         <p className="notice error" role="alert">
           {error}
+        </p>
+      ) : null}
+      {moved ? (
+        <p className="notice ok" role="status">
+          Moved to <strong>{moved}</strong>. The card below is outlined so you can see which one.
+        </p>
+      ) : null}
+      {same ? (
+        <p className="notice" role="status">
+          That lead is already in <strong>{same}</strong>, so nothing changed. Choose a different
+          stage in the list, then press Move lead.
         </p>
       ) : null}
       {noted ? (
@@ -48,7 +65,15 @@ export default async function Leads({
             : null;
 
           return (
-            <div className="card" key={lead.id} style={{ marginBottom: "var(--s4)" }}>
+            <div
+              className="card"
+              key={lead.id}
+              style={
+                lead.id === movedLeadId
+                  ? { marginBottom: "var(--s4)", borderColor: "var(--accent)", borderWidth: 2 }
+                  : { marginBottom: "var(--s4)" }
+              }
+            >
               <div
                 style={{
                   display: "flex",
@@ -85,7 +110,7 @@ export default async function Leads({
                         ))}
                       </select>
                     </div>
-                    <button type="submit">Save</button>
+                    <button type="submit">Move lead</button>
                   </form>
                 ) : null}
               </div>
